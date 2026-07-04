@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -39,9 +40,11 @@ func get(t *testing.T, url, token string) (*http.Response, []byte) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var buf [1 << 20]byte
-	n, _ := resp.Body.Read(buf[:])
-	return resp, buf[:n]
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp, body
 }
 
 func TestSnapshotAndHistory(t *testing.T) {
