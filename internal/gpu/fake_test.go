@@ -53,3 +53,15 @@ func TestFakeInjectedProcs(t *testing.T) {
 		t.Fatalf("procs = %+v", procs)
 	}
 }
+
+func TestFakeSetProcsCopiesCallerSlice(t *testing.T) {
+	f := NewFake(1)
+	_ = f.Init()
+	injected := []ProcSample{{PID: 42, GPUIndex: 0, MemBytes: 1 << 30, SMUtilPct: 55}}
+	f.SetProcs(injected)
+	injected[0].PID = 999 // caller mutates its slice after SetProcs
+	_, procs, _ := f.Sample()
+	if len(procs) != 1 || procs[0].PID != 42 {
+		t.Fatalf("SetProcs must copy the caller's slice; procs = %+v", procs)
+	}
+}

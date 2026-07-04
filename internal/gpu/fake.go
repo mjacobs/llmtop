@@ -22,10 +22,13 @@ func (f *Fake) Init() error                    { return nil }
 func (f *Fake) Shutdown()                      {}
 func (f *Fake) DriverVersion() (string, error) { return "580.00-fake", nil }
 
+// SetProcs copies p, so callers may reuse or mutate their slice afterwards.
 func (f *Fake) SetProcs(p []ProcSample) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.procs = p
+	cp := make([]ProcSample, len(p))
+	copy(cp, p)
+	f.procs = cp
 }
 
 func (f *Fake) Sample() ([]DeviceSample, []ProcSample, error) {
