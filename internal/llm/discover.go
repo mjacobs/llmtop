@@ -20,17 +20,22 @@ func Discover(table map[int32]procs.ProcInfo, adapters []Adapter, static []strin
 		for _, a := range adapters {
 			if ep, ok := a.Detect(info.Cmdline); ok {
 				ep = normalizeEndpoint(ep)
-				if prev, dup := byEP[ep]; !dup || prev.PID == 0 {
+				// Keep the entry with a real PID; on a scan-vs-scan
+				// collision, deterministically keep the smaller PID.
+				if prev, dup := byEP[ep]; !dup || prev.PID == 0 || (info.PID != 0 && info.PID < prev.PID) {
 					byEP[ep] = Discovered{Endpoint: ep, PID: info.PID, Adapter: a}
 				}
 				break
 			}
 		}
 	}
-	for _, url := range static {
-		ep := normalizeEndpoint(url)
-		if _, dup := byEP[ep]; !dup {
-			byEP[ep] = Discovered{Endpoint: ep, Adapter: adapters[0]}
+	// A static endpoint is useless without an adapter to fetch it.
+	if len(adapters) > 0 {
+		for _, url := range static {
+			ep := normalizeEndpoint(url)
+			if _, dup := byEP[ep]; !dup {
+				byEP[ep] = Discovered{Endpoint: ep, Adapter: adapters[0]}
+			}
 		}
 	}
 	out := make([]Discovered, 0, len(byEP))

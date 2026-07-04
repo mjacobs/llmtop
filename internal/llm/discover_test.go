@@ -39,3 +39,27 @@ func TestDiscoverEmpty(t *testing.T) {
 		t.Fatalf("want empty, got %+v", got)
 	}
 }
+
+func TestDiscoverNoAdapters(t *testing.T) {
+	if got := Discover(nil, nil, []string{"http://127.0.0.1:1"}); len(got) != 0 {
+		t.Fatalf("want empty, got %+v", got)
+	}
+}
+
+func TestDiscoverScanCollisionDeterministic(t *testing.T) {
+	cmdline := []string{"/opt/llama.cpp/llama-server", "--host", "127.0.0.1", "--port", "8080"}
+	table := map[int32]procs.ProcInfo{
+		500: {PID: 500, Comm: "llama-server", Cmdline: cmdline},
+		300: {PID: 300, Comm: "llama-server", Cmdline: cmdline},
+	}
+	adapters := []Adapter{NewLlamaCpp()}
+	for i := 0; i < 20; i++ {
+		got := Discover(table, adapters, nil)
+		if len(got) != 1 {
+			t.Fatalf("iter %d: len = %d, want 1: %+v", i, len(got), got)
+		}
+		if got[0].PID != 300 {
+			t.Fatalf("iter %d: PID = %d, want 300 (smaller PID must win)", i, got[0].PID)
+		}
+	}
+}
