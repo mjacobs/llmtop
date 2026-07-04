@@ -19,7 +19,7 @@ func EndpointFromCmdline(argv []string) (string, bool) {
 		if eq := strings.IndexByte(arg, '='); eq >= 0 {
 			return arg[eq+1:], true
 		}
-		if i+1 < len(argv) {
+		if i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "-") {
 			return argv[i+1], true
 		}
 		return "", false
