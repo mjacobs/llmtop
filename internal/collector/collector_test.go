@@ -90,6 +90,47 @@ func TestCollect(t *testing.T) {
 	}
 }
 
+func TestCollectMergesDuplicateProcEntries(t *testing.T) {
+	// A PID appearing in both NVML compute and graphics lists must yield
+	// ONE GPUProc: max MemBytes, max SMUtilPct, Graphics OR'd for classify.
+	vendor := gpu.NewFake(1)
+	vendor.SetProcs([]gpu.ProcSample{
+		{PID: 100, GPUIndex: 0, MemBytes: 4 << 30, SMUtilPct: 10, Graphics: false},
+		{PID: 100, GPUIndex: 0, MemBytes: 2 << 30, SMUtilPct: 60, Graphics: true},
+	})
+	scanner := &procs.Fake{Table: map[int32]procs.ProcInfo{
+		100: {PID: 100, PPID: 1, Comm: "gnome-shell"},
+	}}
+
+	c := New("h", vendor, scanner, nil, nil, "0.1.0")
+	if err := c.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	s := c.Collect(context.Background())
+
+	if len(s.Procs) != 1 {
+		t.Fatalf("want 1 merged proc, got %d: %+v", len(s.Procs), s.Procs)
+	}
+	p := s.Procs[0]
+	if p.PID != 100 || p.GPUIndex != 0 {
+		t.Fatalf("merged key = (%d,%d)", p.PID, p.GPUIndex)
+	}
+	if p.MemBytes != 4<<30 {
+		t.Fatalf("MemBytes = %d, want max %d", p.MemBytes, uint64(4<<30))
+	}
+	if p.SMUtilPct != 60 {
+		t.Fatalf("SMUtilPct = %d, want max 60", p.SMUtilPct)
+	}
+	if p.Class != model.ProcGraphics {
+		t.Fatalf("Class = %q, want graphics (Graphics OR'd true, comm not LLM-ish)", p.Class)
+	}
+	if p.Name != "gnome-shell" {
+		t.Fatalf("Name = %q", p.Name)
+	}
+}
+
 func TestCollectVendorFailure(t *testing.T) {
 	c := New("h", failingVendor{}, &procs.Fake{}, nil, nil, "0.1.0")
 	_ = c.Init()
