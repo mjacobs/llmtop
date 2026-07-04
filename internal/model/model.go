@@ -5,8 +5,8 @@ package model
 import "time"
 
 type HostInfo struct {
-	Name          string `json:"name"`           // config name (display)
-	Hostname      string `json:"hostname"`       // os.Hostname of collector
+	Name          string `json:"name"`     // config name (display)
+	Hostname      string `json:"hostname"` // os.Hostname of collector
 	DriverVersion string `json:"driver_version"`
 	AgentVersion  string `json:"agent_version"`
 }
@@ -53,14 +53,14 @@ const (
 )
 
 type LLMServer struct {
-	Kind       string      `json:"kind"`     // adapter name, "llama.cpp"
-	Endpoint   string      `json:"endpoint"` // http://host:port
-	PID        int32       `json:"pid,omitempty"`
-	Role       string      `json:"role,omitempty"` // "router" for llama.cpp router mode
-	Status     string      `json:"status"`         // StatusOK | StatusLoading | StatusUnreachable
-	Model      string      `json:"model"`          // alias, else basename(model_path)
-	CtxSize    int         `json:"ctx_size"`
-	SlotsTotal int         `json:"slots_total"`
+	Kind       string `json:"kind"`     // adapter name, "llama.cpp"
+	Endpoint   string `json:"endpoint"` // http://host:port
+	PID        int32  `json:"pid,omitempty"`
+	Role       string `json:"role,omitempty"` // "router" for llama.cpp router mode
+	Status     string `json:"status"`         // StatusOK | StatusLoading | StatusUnreachable
+	Model      string `json:"model"`          // alias, else basename(model_path)
+	CtxSize    int    `json:"ctx_size"`
+	SlotsTotal int    `json:"slots_total"`
 	// Metrics is nil when /metrics is unavailable (sole signal for
 	// "metrics off"; Status stays "ok" per spec).
 	Metrics *LLMMetrics `json:"metrics,omitempty"`
@@ -69,8 +69,8 @@ type LLMServer struct {
 type LLMMetrics struct {
 	PromptTokensTotal    float64 `json:"prompt_tokens_total"`
 	PredictedTokensTotal float64 `json:"predicted_tokens_total"`
-	PromptTPS            float64 `json:"prompt_tps"`    // instantaneous (counter delta); avg gauge on first sample
-	PredictedTPS         float64 `json:"predicted_tps"` // same semantics
+	PromptTPS            float64 `json:"prompt_tps"`     // instantaneous (counter delta); avg gauge on first sample
+	PredictedTPS         float64 `json:"predicted_tps"`  // same semantics
 	KVCacheUsage         float64 `json:"kv_cache_usage"` // 0..1; -1 = unknown (metric absent in this build)
 	RequestsProcessing   int     `json:"requests_processing"`
 	RequestsDeferred     int     `json:"requests_deferred"`
