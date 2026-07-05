@@ -1,0 +1,101 @@
+package tui
+
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/mjacobs/llmtop/internal/client"
+	"github.com/mjacobs/llmtop/internal/model"
+)
+
+func testApp() (*App, chan client.Update) {
+	ch := make(chan client.Update, 8)
+	a := NewApp([]string{"h1", "h2"}, ch, time.Second, func(time.Duration) {}, "test")
+	return a, ch
+}
+
+func key(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+func TestNavigationAndModes(t *testing.T) {
+	a, _ := testApp()
+	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	a = m.(*App)
+
+	m, _ = a.Update(key("j"))
+	a = m.(*App)
+	if a.selected != 1 {
+		t.Fatalf("selected = %d, want 1", a.selected)
+	}
+	m, _ = a.Update(key("j")) // clamp at last host
+	a = m.(*App)
+	if a.selected != 1 {
+		t.Fatalf("selected = %d, want 1 (clamped)", a.selected)
+	}
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a = m.(*App)
+	if a.mode != modeDrill {
+		t.Fatal("enter must open drill-down")
+	}
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	a = m.(*App)
+	if a.mode != modeOverview {
+		t.Fatal("esc must return to overview")
+	}
+}
+
+func TestQuit(t *testing.T) {
+	a, _ := testApp()
+	_, cmd := a.Update(key("q"))
+	if cmd == nil {
+		t.Fatal("q must produce a command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("q must quit")
+	}
+}
+
+func TestUpdateMsgAppliesAndPauseDiscards(t *testing.T) {
+	a, ch := testApp()
+	snap := &model.Snapshot{Host: model.HostInfo{Name: "h1"},
+		GPUs: []model.GPU{{Index: 0, UtilPct: 50, MemTotal: 1}}}
+
+	ch <- client.Update{Host: "h1", Snapshot: snap}
+	m, cmd := a.Update(a.readUpdate()())
+	a = m.(*App)
+	if a.hostByName["h1"].Snap == nil {
+		t.Fatal("update must apply")
+	}
+	if cmd == nil {
+		t.Fatal("must keep reading channel")
+	}
+
+	m, _ = a.Update(key("p"))
+	a = m.(*App)
+	ch <- client.Update{Host: "h1", Err: errors.New("boom")}
+	m, _ = a.Update(a.readUpdate()())
+	a = m.(*App)
+	if a.hostByName["h1"].ErrMsg != "" {
+		t.Fatal("paused updates must be discarded")
+	}
+}
+
+func TestViewRenders(t *testing.T) {
+	a, ch := testApp()
+	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	a = m.(*App)
+	ch <- client.Update{Host: "h1", Snapshot: &model.Snapshot{
+		Host: model.HostInfo{Name: "h1"},
+		GPUs: []model.GPU{{Index: 0, UtilPct: 50, MemUsed: 1, MemTotal: 2}}}}
+	m, _ = a.Update(a.readUpdate()())
+	a = m.(*App)
+	out := a.View()
+	if out == "" || !strings.Contains(out, "llmtop") || !strings.Contains(out, "h1") {
+		t.Fatalf("view:\n%s", out)
+	}
+}
