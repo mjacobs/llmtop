@@ -16,7 +16,8 @@ var sampleTS = time.Unix(1_700_000_000, 0)
 // the overview/drill-down/app views need to exercise:
 //
 //   - "alpha": healthy, 2 GPUs, 2 servers (one with Metrics nil, i.e.
-//     "--metrics off").
+//     "--metrics off"), and 5 GPU processes (llm/graphics/other classes,
+//     including an SM%-unknown one) for the drill-down process table.
 //   - "bravo": reachable host whose one server has Status loading.
 //   - "charlie": unreachable — ErrMsg set, no Snap.
 //
@@ -68,6 +69,13 @@ func SampleHostStates() []*HostState {
 				CtxSize: 8192, SlotsTotal: 1,
 				Metrics: nil, // --metrics off
 			},
+		},
+		Procs: []model.GPUProc{
+			{PID: 2310469, Name: "llama-server", GPUIndex: 0, MemBytes: 21 << 30, SMUtilPct: 65, Class: model.ProcLLM},
+			{PID: 4821, Name: "Xorg", GPUIndex: 0, MemBytes: (24106127360 - 21<<30) / 2, SMUtilPct: -1, Class: model.ProcGraphics},
+			{PID: 5533, Name: "chrome", GPUIndex: 0, MemBytes: (24106127360 - 21<<30) / 2, SMUtilPct: 1, Class: model.ProcOther},
+			{PID: 2310480, Name: "llama-server", GPUIndex: 1, MemBytes: 3 << 30, SMUtilPct: 12, Class: model.ProcLLM},
+			{PID: 4822, Name: "kwin_wayland", GPUIndex: 1, MemBytes: 1 << 30, SMUtilPct: 2, Class: model.ProcGraphics},
 		},
 	}})
 
