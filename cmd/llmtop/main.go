@@ -2,8 +2,23 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/mjacobs/llmtop/internal/agent"
+	"github.com/mjacobs/llmtop/internal/collector"
+	"github.com/mjacobs/llmtop/internal/config"
+	"github.com/mjacobs/llmtop/internal/gpu"
+	"github.com/mjacobs/llmtop/internal/llm"
+	"github.com/mjacobs/llmtop/internal/procs"
+	"github.com/mjacobs/llmtop/internal/tui"
 )
 
 const version = "0.1.0-dev"
@@ -27,5 +42,63 @@ func main() {
 	}
 }
 
-func runAgent(args []string) error { return fmt.Errorf("not implemented yet") }
-func runTUI(args []string) error   { return fmt.Errorf("not implemented yet") }
+func runTUI(args []string) error {
+	fs := flag.NewFlagSet("llmtop", flag.ExitOnError)
+	cfgPath := fs.String("config", config.DefaultPath(), "config file path")
+	demo := fs.Bool("demo", false, "synthetic data, no GPUs needed")
+	var connects multiFlag
+	fs.Var(&connects, "connect", "agent address host:port (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
+	return tui.Run(cfg, connects, *demo, version)
+}
+
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
+
+func runAgent(args []string) error {
+	fs := flag.NewFlagSet("llmtop agent", flag.ExitOnError)
+	cfgPath := fs.String("config", config.DefaultPath(), "config file path")
+	listen := fs.String("listen", "", "listen address (overrides config)")
+	token := fs.String("token", "", "bearer token (overrides config)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
+	if *listen != "" {
+		cfg.Agent.Listen = *listen
+	}
+	if *token != "" {
+		cfg.Agent.Token = *token
+	}
+	var static []string
+	for _, h := range cfg.Hosts {
+		if h.Local {
+			for _, e := range h.LLMEndpoints {
+				static = append(static, e.URL)
+			}
+		}
+	}
+	name, _ := os.Hostname()
+	col := collector.New(name, gpu.NewNVML(), procs.NewProcFS(),
+		[]llm.Adapter{llm.NewLlamaCpp()}, static, version)
+	if err := col.Init(); err != nil {
+		return fmt.Errorf("collector init: %w", err)
+	}
+	defer col.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	log.Printf("llmtop agent %s listening on %s", version, cfg.Agent.Listen)
+	return agent.Run(ctx, col, cfg.Agent.Listen, cfg.Agent.Token,
+		time.Duration(cfg.RefreshMS)*time.Millisecond)
+}
