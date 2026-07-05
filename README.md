@@ -34,14 +34,30 @@ To monitor a remote machine, run the agent there and point a TUI at it:
 
 ```bash
 # on the remote box
-llmtop agent --listen :9832 --token some-shared-secret
+llmtop agent --listen :9832
 
 # on your workstation
 llmtop --connect remote-host:9832
 ```
 
-Or declare hosts (local and/or remote) permanently in a config file — see
-below.
+`--connect` only works against agents running **without** a token — the TUI
+has no `--token` flag. To reach an agent that requires one, declare the host
+in the config file instead:
+
+```toml
+# workstation ~/.config/llmtop/config.toml
+[[hosts]]
+name  = "remote-host"
+addr  = "remote-host:9832"
+token = "some-shared-secret"   # must match the agent's token
+
+# remote box (or pass --token to `llmtop agent`)
+[agent]
+token = "some-shared-secret"
+```
+
+The config file is also how you declare hosts (local and/or remote)
+permanently — see below.
 
 ### Flags
 
@@ -62,8 +78,8 @@ file at all is equivalent to monitoring only the local machine with defaults.
 ```toml
 refresh_ms = 1000        # TUI poll + local sample cadence
 
-[[hosts]]
-name  = "local"          # local collector; can be omitted (implied)
+[[hosts]]                # omit ALL [[hosts]] entries to default to local-only
+name  = "local"          # required on every host entry
 local = true
 
 [[hosts]]
