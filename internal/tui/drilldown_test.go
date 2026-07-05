@@ -36,6 +36,23 @@ func TestRenderDrilldownWidthAndClamp(t *testing.T) {
 	}
 }
 
+// TestRenderDrilldownProcBudgetOne pins the truncation contract when the
+// process table's height budget is exactly one row: instead of a bare header
+// with every row silently hidden, the table renders a "+N more" indicator in
+// the header's place. With SampleHostStates()[0] (19 fixed lines above the
+// table: title, 2 chart labels, 2×6 chart rows, 2×2 server lines) and a
+// 2-row border, height 22 yields budget = 22-2-19 = 1.
+func TestRenderDrilldownProcBudgetOne(t *testing.T) {
+	h := SampleHostStates()[0] // 5 procs
+	out := RenderDrilldown(h, 0, 100, 22, DefaultTheme())
+	if !strings.Contains(out, "+5 more") {
+		t.Errorf("budget-1 proc table missing \"+5 more\" indicator:\n%s", out)
+	}
+	if strings.Contains(out, "PID") {
+		t.Errorf("budget-1 proc table must not render a bare header:\n%s", out)
+	}
+}
+
 func TestRenderDrilldownDeadHost(t *testing.T) {
 	h := SampleHostStates()[2] // unreachable host
 	out := RenderDrilldown(h, 0, 80, 24, DefaultTheme())

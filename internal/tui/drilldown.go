@@ -181,22 +181,25 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 // procTableLines renders the process-table header plus as many rows
 // (sorted by MemBytes descending) as budget allows, with a "+N more" footer
 // when rows are truncated. budget is the number of visual rows remaining in
-// the panel; a non-positive budget renders nothing.
+// the panel: non-positive renders nothing, and a single-row budget with
+// processes present renders "+N more" in place of the header so hidden rows
+// are never silently dropped.
 func procTableLines(procs []model.GPUProc, th Theme, width, budget int) []string {
 	if budget <= 0 {
 		return nil
 	}
+	if budget == 1 && len(procs) > 0 {
+		return []string{truncateLine(th.Dim.Render(fmt.Sprintf("+%d more", len(procs))), width)}
+	}
 	header := fmt.Sprintf("%-*s%-*s%-*s%-*s%-*s%s",
 		colPID, "PID", colName, "NAME", colClass, "CLASS", colGPU, "GPU", colVRAM, "VRAM", "SM%")
 	lines := []string{truncateLine(header, width)}
-
 	rowBudget := budget - 1
-	if rowBudget <= 0 {
-		return lines
-	}
 
+	// Stable sort so equal-VRAM processes keep a fixed order frame to frame
+	// (Slice's unstable ordering would make tied rows flicker).
 	sorted := append([]model.GPUProc(nil), procs...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].MemBytes > sorted[j].MemBytes })
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].MemBytes > sorted[j].MemBytes })
 
 	shown := len(sorted)
 	truncated := false
@@ -210,7 +213,7 @@ func procTableLines(procs []model.GPUProc, th Theme, width, budget int) []string
 	for _, p := range sorted[:shown] {
 		lines = append(lines, truncateLine(procRow(p, th, width), width))
 	}
-	if truncated && rowBudget > shown {
+	if truncated {
 		lines = append(lines, truncateLine(th.Dim.Render(fmt.Sprintf("+%d more", len(sorted)-shown)), width))
 	}
 	return lines
