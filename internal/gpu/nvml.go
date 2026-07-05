@@ -30,6 +30,9 @@ func (n *nvmlVendor) DriverVersion() (string, error) {
 	return v, nil
 }
 
+// Sample is not safe for concurrent use: it is a single-caller contract,
+// since the per-device lastTs watermark map it reads and updates is
+// unsynchronized.
 func (n *nvmlVendor) Sample() ([]DeviceSample, []ProcSample, error) {
 	count, ret := nvml.DeviceGetCount()
 	if ret != nvml.SUCCESS {

@@ -96,6 +96,9 @@ func validate(cfg Config) error {
 		if h.Local == (h.Addr != "") {
 			return fmt.Errorf("host %q: exactly one of local=true or addr must be set", h.Name)
 		}
+		if !h.Local && len(h.LLMEndpoints) > 0 {
+			return fmt.Errorf("host %q: llm_endpoints only apply to local hosts — declare them in that host's agent config", h.Name)
+		}
 	}
 	return nil
 }

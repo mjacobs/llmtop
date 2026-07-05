@@ -82,13 +82,13 @@ refresh_ms = 1000        # TUI poll + local sample cadence
 name  = "local"          # required on every host entry
 local = true
 
+  [[hosts.llm_endpoints]] # optional static additions for this (local) host
+  url = "http://127.0.0.1:8081"
+
 [[hosts]]
 name  = "charlie"
 addr  = "192.0.2.x:9832"
 token = "…"              # optional, must match agent's
-
-  [[hosts.llm_endpoints]] # optional static additions for this host
-  url = "http://127.0.0.1:8081"
 
 [agent]                   # used by `llmtop agent`
 listen = ":9832"
@@ -99,7 +99,9 @@ Each host entry is either `local = true` (an in-process collector) or has an
 `addr` (an HTTP client talking to a remote `llmtop agent`) — exactly one of
 the two. `llm_endpoints` lets you add LLM server URLs that process-scan
 discovery can't see (e.g. containerized servers whose cmdline isn't visible
-from the host's `/proc`).
+from `/proc`) — they only apply to `local` hosts, since they're read by
+whichever process runs the collector for that host. For a remote host,
+declare its `llm_endpoints` in the agent's own config on that machine instead.
 
 ## Key bindings
 
@@ -128,8 +130,10 @@ from the host's `/proc`).
   running exactly the same either way, `llmtop` just has less to show.
 - **Containers / static endpoints:** if a server's process isn't visible from
   the host (e.g. running in a container with a hidden cmdline), add it under
-  `[[hosts.llm_endpoints]]` in the config so `llmtop` polls its HTTP API
-  directly even though it can't be discovered via `/proc`.
+  `[[hosts.llm_endpoints]]` in the config of whichever process collects for
+  that machine — the TUI's local host entry when it's the local machine, or
+  the agent's own config when it's a remote machine — so `llmtop` polls its
+  HTTP API directly even though it can't be discovered via `/proc`.
 
 ## Agent security
 

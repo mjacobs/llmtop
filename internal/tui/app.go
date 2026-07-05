@@ -122,16 +122,20 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if next < minRefresh {
 			next = minRefresh
 		}
-		a.refresh = next
-		a.onRefresh(a.refresh)
+		if next != a.refresh {
+			a.refresh = next
+			a.onRefresh(a.refresh)
+		}
 
 	case "-":
 		next := a.refresh * 2
 		if next > maxRefresh {
 			next = maxRefresh
 		}
-		a.refresh = next
-		a.onRefresh(a.refresh)
+		if next != a.refresh {
+			a.refresh = next
+			a.onRefresh(a.refresh)
+		}
 
 	case "?":
 		a.showHelp = !a.showHelp

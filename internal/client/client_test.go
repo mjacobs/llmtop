@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/mjacobs/llmtop/internal/agent"
 	"github.com/mjacobs/llmtop/internal/collector"
 	"github.com/mjacobs/llmtop/internal/gpu"
+	"github.com/mjacobs/llmtop/internal/model"
 	"github.com/mjacobs/llmtop/internal/procs"
 )
 
@@ -79,6 +82,38 @@ func TestStartRemoteBackfillLiveAndError(t *testing.T) {
 		case <-deadline:
 			t.Fatal("no error update after server close")
 		}
+	}
+}
+
+// TestStartRemoteBackfillWedgeFallsBackToLive covers the fix for a
+// persistently failing /api/v1/history: after maxBackfillFailures
+// consecutive errors, StartRemote must stop retrying backfill and fall
+// back to live-snapshot polling instead of wedging forever.
+func TestStartRemoteBackfillWedgeFallsBackToLive(t *testing.T) {
+	snap := model.Snapshot{Host: model.HostInfo{Name: "rem"}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/history", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v1/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(snap)
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := make(chan Update, 64)
+	StartRemote(ctx, "rem", ts.URL, "", 10*time.Millisecond, ch)
+
+	for i := 0; i < 3; i++ {
+		if u := recv(t, ch, 10*time.Second); u.Err == nil {
+			t.Fatalf("backfill failure %d: want error update, got %+v", i, u)
+		}
+	}
+	if u := recv(t, ch, 10*time.Second); u.Err != nil || u.Snapshot == nil || u.Snapshot.Host.Name != "rem" {
+		t.Fatalf("after giving up on backfill: want live snapshot update, got %+v", u)
 	}
 }
 

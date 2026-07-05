@@ -23,13 +23,13 @@ refresh_ms = 500
 name  = "local"
 local = true
 
+  [[hosts.llm_endpoints]]
+  url = "http://127.0.0.1:8081"
+
 [[hosts]]
 name  = "charlie"
 addr  = "192.0.2.40:9832"
 token = "s3cret"
-
-  [[hosts.llm_endpoints]]
-  url = "http://127.0.0.1:8081"
 
 [agent]
 listen = ":9000"
@@ -45,8 +45,8 @@ token  = "s3cret"
 	if len(cfg.Hosts) != 2 || !cfg.Hosts[0].Local || cfg.Hosts[1].Addr != "192.0.2.40:9832" {
 		t.Fatalf("hosts = %+v", cfg.Hosts)
 	}
-	if len(cfg.Hosts[1].LLMEndpoints) != 1 || cfg.Hosts[1].LLMEndpoints[0].URL != "http://127.0.0.1:8081" {
-		t.Fatalf("llm_endpoints = %+v", cfg.Hosts[1].LLMEndpoints)
+	if len(cfg.Hosts[0].LLMEndpoints) != 1 || cfg.Hosts[0].LLMEndpoints[0].URL != "http://127.0.0.1:8081" {
+		t.Fatalf("llm_endpoints = %+v", cfg.Hosts[0].LLMEndpoints)
 	}
 	if cfg.Agent.Listen != ":9000" {
 		t.Fatalf("agent = %+v", cfg.Agent)
@@ -78,9 +78,10 @@ func assertDefault(t *testing.T, cfg Config) {
 
 func TestValidationErrors(t *testing.T) {
 	cases := map[string]string{
-		"both local and addr": "[[hosts]]\nname=\"x\"\nlocal=true\naddr=\"h:1\"\n",
-		"neither":             "[[hosts]]\nname=\"x\"\n",
-		"dup names":           "[[hosts]]\nname=\"x\"\nlocal=true\n[[hosts]]\nname=\"x\"\naddr=\"h:1\"\n",
+		"both local and addr":     "[[hosts]]\nname=\"x\"\nlocal=true\naddr=\"h:1\"\n",
+		"neither":                 "[[hosts]]\nname=\"x\"\n",
+		"dup names":               "[[hosts]]\nname=\"x\"\nlocal=true\n[[hosts]]\nname=\"x\"\naddr=\"h:1\"\n",
+		"llm_endpoints on remote": "[[hosts]]\nname=\"x\"\naddr=\"h:1\"\n[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8081\"\n",
 	}
 	for name, body := range cases {
 		if _, err := Load(write(t, body)); err == nil {

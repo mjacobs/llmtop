@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -15,6 +16,12 @@ import (
 )
 
 const ringCapacity = 600 // ~10 min at 1s cadence
+
+// historyResponseCap bounds a single /api/v1/history response to the
+// newest N snapshots after the since-filter: matches the TUI ring
+// capacity, and bounds response size by construction regardless of how
+// wide a since= window a client asks for.
+const historyResponseCap = 300
 
 type Server struct {
 	col   *collector.Collector
@@ -61,7 +68,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.token != "" && r.Header.Get("Authorization") != "Bearer "+s.token {
+		if s.token != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.token)) != 1 {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
@@ -91,6 +98,9 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 			out = append(out, snap)
 		}
 	}
+	if len(out) > historyResponseCap {
+		out = out[len(out)-historyResponseCap:]
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -104,7 +114,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func Run(ctx context.Context, col *collector.Collector, listen, token string, interval time.Duration) error {
 	s := New(col, token)
 	go s.RunSampling(ctx, interval)
-	srv := &http.Server{Addr: listen, Handler: s.Handler()}
+	srv := &http.Server{Addr: listen, Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {

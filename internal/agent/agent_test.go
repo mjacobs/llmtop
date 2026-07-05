@@ -81,6 +81,30 @@ func TestSnapshotAndHistory(t *testing.T) {
 	}
 }
 
+func TestHistoryCapsToNewest(t *testing.T) {
+	s, ts := newTestServer(t, "")
+
+	for i := 0; i < 305; i++ {
+		s.SampleNow(context.Background())
+	}
+	latest, ok := s.ring.Last()
+	if !ok {
+		t.Fatal("expected at least one sample")
+	}
+
+	_, body := get(t, ts.URL+"/api/v1/history", "")
+	var hist []model.Snapshot
+	if err := json.Unmarshal(body, &hist); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(hist) != historyResponseCap {
+		t.Fatalf("len(hist) = %d, want %d", len(hist), historyResponseCap)
+	}
+	if last := hist[len(hist)-1]; !last.Timestamp.Equal(latest.Timestamp) {
+		t.Fatalf("last returned = %v, want latest sample = %v", last.Timestamp, latest.Timestamp)
+	}
+}
+
 func TestAuth(t *testing.T) {
 	s, ts := newTestServer(t, "s3cret")
 	s.SampleNow(context.Background())

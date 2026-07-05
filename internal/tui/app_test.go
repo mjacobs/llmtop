@@ -85,6 +85,41 @@ func TestUpdateMsgAppliesAndPauseDiscards(t *testing.T) {
 	}
 }
 
+func TestRefreshKeysSkipNoOpCallback(t *testing.T) {
+	ch := make(chan client.Update, 8)
+	calls := 0
+	var lastArg time.Duration
+	a := NewApp([]string{"h1"}, ch, minRefresh, func(d time.Duration) {
+		calls++
+		lastArg = d
+	}, "test")
+
+	// Already at the floor: '+' would halve below minRefresh and clamp
+	// right back to the same value, so the callback must not fire.
+	m, _ := a.Update(key("+"))
+	a = m.(*App)
+	if calls != 0 {
+		t.Fatalf("calls after no-op '+' = %d, want 0", calls)
+	}
+	if a.refresh != minRefresh {
+		t.Fatalf("refresh after no-op '+' = %v, want %v", a.refresh, minRefresh)
+	}
+
+	// '-' doubles to 500ms, an actual change, so the callback must fire
+	// exactly once with the new value.
+	m, _ = a.Update(key("-"))
+	a = m.(*App)
+	if calls != 1 {
+		t.Fatalf("calls after '-' = %d, want 1", calls)
+	}
+	if lastArg != 500*time.Millisecond {
+		t.Fatalf("callback arg = %v, want 500ms", lastArg)
+	}
+	if a.refresh != 500*time.Millisecond {
+		t.Fatalf("refresh after '-' = %v, want 500ms", a.refresh)
+	}
+}
+
 func TestViewRenders(t *testing.T) {
 	a, ch := testApp()
 	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})

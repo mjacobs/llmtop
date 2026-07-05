@@ -51,6 +51,14 @@ func StartLocal(ctx context.Context, name string, col *collector.Collector, inte
 const (
 	backoffMin = time.Second
 	backoffMax = 30 * time.Second
+
+	// maxBackfillFailures bounds how many consecutive backfill attempts we
+	// make before giving up on history for this reconnect cycle. A
+	// persistently failing backfill (e.g. agent stuck returning 500s on
+	// /api/v1/history) must not wedge the host forever: after this many
+	// failures we fall back to live-snapshot polling — charts lose history
+	// but live data keeps flowing.
+	maxBackfillFailures = 3
 )
 
 func StartRemote(ctx context.Context, name, addr, token string, interval time.Duration, ch chan<- Update) {
@@ -64,6 +72,7 @@ func StartRemote(ctx context.Context, name, addr, token string, interval time.Du
 		backoff := backoffMin
 		lastSeen := int64(0)
 		needBackfill := true
+		backfillFailures := 0
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
@@ -72,6 +81,11 @@ func StartRemote(ctx context.Context, name, addr, token string, interval time.Du
 				snaps, err := fetchHistory(ctx, hc, base, token, lastSeen)
 				if err != nil {
 					failed = err
+					backfillFailures++
+					if backfillFailures >= maxBackfillFailures {
+						needBackfill = false
+						backfillFailures = 0
+					}
 				} else {
 					for i := range snaps {
 						if !send(ctx, ch, Update{Host: name, Snapshot: &snaps[i]}) {
@@ -80,6 +94,7 @@ func StartRemote(ctx context.Context, name, addr, token string, interval time.Du
 						lastSeen = snaps[i].Timestamp.UnixMilli()
 					}
 					needBackfill = false
+					backfillFailures = 0
 				}
 			} else {
 				snap, err := fetchSnapshot(ctx, hc, base, token)
