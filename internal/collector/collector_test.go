@@ -15,9 +15,9 @@ import (
 func fakeLlama(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"status":"ok"}`)) })
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"status":"ok"}`)) })
 	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"model_alias":"testmodel","model_path":"/m/t.gguf","total_slots":2,"default_generation_settings":{"n_ctx":8192}}`))
+		_, _ = w.Write([]byte(`{"model_alias":"testmodel","model_path":"/m/t.gguf","total_slots":2,"default_generation_settings":{"n_ctx":8192}}`))
 	})
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(501) })
 	srv := httptest.NewServer(mux)

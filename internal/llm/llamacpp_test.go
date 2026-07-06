@@ -29,17 +29,17 @@ func newFakeServer(t *testing.T, props string, metricsStatus int, metrics *strin
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(props))
+		_, _ = w.Write([]byte(props))
 	})
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		if metrics == nil {
 			w.WriteHeader(metricsStatus)
 			return
 		}
-		w.Write([]byte(*metrics))
+		_, _ = w.Write([]byte(*metrics))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -104,7 +104,7 @@ func TestFetchLoading(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(503)
-		w.Write([]byte(`{"status":"loading model"}`))
+		_, _ = w.Write([]byte(`{"status":"loading model"}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

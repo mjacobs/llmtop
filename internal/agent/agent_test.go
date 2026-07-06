@@ -39,7 +39,7 @@ func get(t *testing.T, url, token string) (*http.Response, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -68,14 +68,14 @@ func TestSnapshotAndHistory(t *testing.T) {
 		t.Fatalf("snapshot decode: %v, %+v", err, snap)
 	}
 
-	resp, body = get(t, ts.URL+"/api/v1/history", "")
+	_, body = get(t, ts.URL+"/api/v1/history", "")
 	var hist []model.Snapshot
 	if err := json.Unmarshal(body, &hist); err != nil || len(hist) != 2 {
 		t.Fatalf("history: %v, n=%d", err, len(hist))
 	}
 
 	since := hist[0].Timestamp.UnixMilli()
-	resp, body = get(t, fmt.Sprintf("%s/api/v1/history?since=%d", ts.URL, since), "")
+	_, body = get(t, fmt.Sprintf("%s/api/v1/history?since=%d", ts.URL, since), "")
 	if err := json.Unmarshal(body, &hist); err != nil || len(hist) != 1 {
 		t.Fatalf("history since: %v, n=%d", err, len(hist))
 	}

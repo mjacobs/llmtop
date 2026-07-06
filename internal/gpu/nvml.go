@@ -20,7 +20,7 @@ func (n *nvmlVendor) Init() error {
 	return nil
 }
 
-func (n *nvmlVendor) Shutdown() { nvml.Shutdown() }
+func (n *nvmlVendor) Shutdown() { _ = nvml.Shutdown() }
 
 func (n *nvmlVendor) DriverVersion() (string, error) {
 	v, ret := nvml.SystemGetDriverVersion()
