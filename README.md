@@ -107,10 +107,7 @@ declare its `llm_endpoints` in the agent's own config on that machine instead.
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` / arrows | select host (overview) |
-| `Enter` | drill down into selected host |
-| `Esc` | back to overview |
-| `Tab` | cycle GPUs (drill-down) |
+| `j` / `k` / arrows | select GPU panel |
 | `p` | pause updates |
 | `+` / `-` | increase / decrease refresh rate |
 | `?` | toggle help |
