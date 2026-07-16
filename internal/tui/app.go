@@ -184,7 +184,7 @@ func (a *App) View() string {
 			body = RenderDrilldown(a.hosts[a.selected], a.gpuSel, a.width, a.height-2, a.theme)
 		}
 	default:
-		body = RenderOverview(a.hosts, a.selected, a.width, a.theme)
+		body = RenderOverview(a.hosts, a.selected, a.width, a.height-2, a.theme)
 	}
 
 	footer := a.theme.Dim.Render(helpText)

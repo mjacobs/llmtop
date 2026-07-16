@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/mjacobs/llmtop/internal/client"
 	"github.com/mjacobs/llmtop/internal/history"
@@ -15,15 +16,15 @@ import (
 
 func TestRenderOverviewContent(t *testing.T) {
 	hosts := SampleHostStates()
-	out := RenderOverview(hosts, 0, 100, DefaultTheme())
+	out := RenderOverview(hosts, 0, 100, 60, DefaultTheme())
 
 	for _, want := range []string{
-		"alpha",            // host name
-		"GPU0",            // gpu row
-		"qwen36-35b-mtp",  // server model
-		"t/s",             // throughput
-		"(--metrics off)", // degraded server hint
-		"unreachable",     // dead host panel
+		"alpha",             // host name
+		"GPU0",             // gpu panel title
+		"qwen36-35b-mtp",   // server model
+		"t/s",              // throughput
+		"metrics disabled", // degraded server hint (grid tiers use panel.go's serverLine2 wording, not legacy serverLine's "(--metrics off)")
+		"unreachable",      // dead host strip
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("overview missing %q\n%s", want, out)
@@ -33,10 +34,110 @@ func TestRenderOverviewContent(t *testing.T) {
 
 func TestRenderOverviewWidth(t *testing.T) {
 	hosts := SampleHostStates()
-	out := RenderOverview(hosts, 0, 80, DefaultTheme())
+	out := RenderOverview(hosts, 0, 80, 60, DefaultTheme())
 	for _, line := range strings.Split(out, "\n") {
 		if w := lipgloss.Width(line); w > 80 {
 			t.Errorf("line width %d > 80: %q", w, line)
+		}
+	}
+}
+
+func TestRenderOverviewTwoColumns(t *testing.T) {
+	hosts := SampleHostStates()
+	out := RenderOverview(hosts, 0, 140, 50, DefaultTheme())
+	// alpha's two GPU panels share rows: some line carries both titles.
+	sideBySide := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "GPU0") && strings.Contains(line, "GPU1") {
+			sideBySide = true
+		}
+	}
+	if !sideBySide {
+		t.Errorf("width 140 must render GPU0 and GPU1 side by side\n%s", out)
+	}
+	// Odd trailing panel keeps half width: bravo's lone panel row
+	// is panelW = (140-1)/2 = 69 columns, not full width.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "RTX 4080") && lipgloss.Width(line) > 69 {
+			t.Errorf("lone panel must stay half width, line is %d cols: %q",
+				lipgloss.Width(line), line)
+		}
+	}
+}
+
+func TestRenderOverviewSingleColumn(t *testing.T) {
+	hosts := SampleHostStates()
+	out := RenderOverview(hosts, 0, 100, 63, DefaultTheme())
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "GPU0") && strings.Contains(line, "GPU1") {
+			t.Errorf("width 100 must stack panels, found side-by-side line: %q", line)
+		}
+	}
+}
+
+func TestRenderOverviewFitsHeight(t *testing.T) {
+	hosts := SampleHostStates()
+	for _, size := range [][2]int{{100, 63}, {140, 40}, {100, 45}, {120, 200}} {
+		out := RenderOverview(hosts, 0, size[0], size[1], DefaultTheme())
+		if got := len(strings.Split(out, "\n")); got > size[1] {
+			t.Errorf("%dx%d: rendered %d lines > height", size[0], size[1], got)
+		}
+	}
+}
+
+func TestRenderOverviewCompactParity(t *testing.T) {
+	hosts := SampleHostStates()
+	// Height 20 forces COMPACT (see layout_test tier fixtures).
+	got := RenderOverview(hosts, 0, 100, 20, DefaultTheme())
+	want := renderCompact(hosts, 0, 100, DefaultTheme())
+	if got != want {
+		t.Errorf("COMPACT tier must match the legacy overview\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	// Selecting alpha's second panel (flat index 1) still highlights alpha.
+	got = RenderOverview(hosts, 1, 100, 20, DefaultTheme())
+	if got != want {
+		t.Errorf("panel 1 is still host 0 — compact highlight must not move")
+	}
+}
+
+func TestRenderOverviewSelection(t *testing.T) {
+	hosts := SampleHostStates()
+	th := DefaultTheme()
+	// Panel 2 is bravo's GPU (alpha owns 0 and 1).
+	if hostOfPanel(buildHostRenders(hosts), 2) != 1 {
+		t.Fatal("panel 2 must belong to host 1")
+	}
+	// Selected panel gets the lavender active border. The difference is
+	// color-only, and `go test` runs with stdout not a tty, so lipgloss's
+	// default renderer would silently strip it (Ascii profile) and make a
+	// and b identical regardless of selection — force TrueColor for this
+	// assertion so the comparison is meaningful.
+	prevProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(prevProfile)
+	a := RenderOverview(hosts, 0, 100, 63, th)
+	b := RenderOverview(hosts, 2, 100, 63, th)
+	if a == b {
+		t.Error("moving selection must change the rendered output")
+	}
+}
+
+func TestRenderOverviewRobustness(t *testing.T) {
+	th := DefaultTheme()
+	empty := NewHostState("empty")
+	empty.Apply(client.Update{Host: "empty", Snapshot: &model.Snapshot{
+		Timestamp: time.Unix(1_700_000_001, 0)}}) // Snap with zero GPUs
+	dead := NewHostState("dead")
+	dead.ErrMsg = "boom"
+
+	for _, hosts := range [][]*HostState{
+		nil,
+		{dead},
+		{empty},
+		SampleHostStates(),
+	} {
+		for _, size := range [][2]int{{20, 5}, {5, 3}, {200, 100}} {
+			_ = RenderOverview(hosts, 99, size[0], size[1], th) // must not panic
 		}
 	}
 }
