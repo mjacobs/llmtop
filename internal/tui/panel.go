@@ -208,3 +208,59 @@ func panelProcRow(p model.GPUProc, th Theme) string {
 		classStyle.Render(fmt.Sprintf("%-*s", pColClass, string(p.Class))) +
 		fmt.Sprintf("%-*s%s", pColVRAM, FmtBytes(p.MemBytes), sm)
 }
+
+// renderGPUPanel renders one bordered per-GPU detail panel: title
+// (index, name, temp, power), util label+chart, mem label+chart, the
+// server blocks mapped to this GPU, and (showProcs) its process table,
+// which absorbs the remaining contentH budget. The panel is exactly
+// contentH+2 terminal rows tall so grid rows stay rectangular; overflow
+// is clipped defensively. Caller guarantees hr.h.Snap != nil and a valid
+// gpuIdx.
+func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProcs, active bool, th Theme) string {
+	inner := width - 4 // border (1) + padding (1) each side
+	if inner < 1 {
+		inner = 1
+	}
+	if contentH < 1 {
+		contentH = 1
+	}
+	h := hr.h
+	gpu := h.Snap.GPUs[gpuIdx]
+
+	var lines []string
+	title := fmt.Sprintf("GPU%d %s", gpu.Index, gpu.Name) +
+		th.Warm.Render(fmt.Sprintf(" %d°", gpu.TempC)) +
+		th.Power.Render(fmt.Sprintf(" %dW", gpu.PowerW))
+	lines = append(lines, truncateLine(title, inner))
+
+	lines = append(lines, truncateLine(utilLabel(gpu, th), inner))
+	utilChart := renderGraph(
+		ringSlice(h.UtilHist, gpu.Index), ringSlice(h.LLMUtilHist, gpu.Index),
+		inner, chartH, th.Util, th.LLM)
+	lines = append(lines, strings.Split(utilChart, "\n")...)
+
+	lines = append(lines, truncateLine(memLabel(gpu, th), inner))
+	memChart := renderGraph(
+		ringSlice(h.MemHist, gpu.Index), ringSlice(h.LLMMemHist, gpu.Index),
+		inner, chartH, th.Mem, th.LLM)
+	lines = append(lines, strings.Split(memChart, "\n")...)
+
+	for _, srv := range hr.byGPU[gpu.Index] {
+		lines = append(lines, truncateLine(serverLine1(srv, th), inner))
+		lines = append(lines, truncateLine(serverLine2(srv, th), inner))
+	}
+
+	if showProcs {
+		lines = append(lines, panelProcLines(h.Snap.Procs, gpu.Index, th, inner, contentH-len(lines))...)
+	}
+	if len(lines) > contentH {
+		lines = lines[:contentH]
+	}
+
+	border := th.Border
+	if active {
+		border = th.BorderActive
+	}
+	return border.Width(width-2).Height(contentH).Padding(0, 1).
+		Render(strings.Join(lines, "\n"))
+}

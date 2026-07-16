@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/mjacobs/llmtop/internal/model"
 )
 
@@ -129,5 +131,55 @@ func TestPanelProcLinesBudget(t *testing.T) {
 	// A GPU with no procs renders nothing regardless of budget.
 	if got := panelProcLines(h.Snap.Procs, 7, th, 80, 5); got != nil {
 		t.Errorf("no-proc GPU must render nothing, got %v", got)
+	}
+}
+
+func TestRenderGPUPanelContent(t *testing.T) {
+	hrs := buildHostRenders(SampleHostStates())
+	out := renderGPUPanel(hrs[0], 0, 70, 24, 4, true, false, DefaultTheme())
+
+	for _, want := range []string{
+		"GPU0", "NVIDIA RTX 4090", "64°", "412W", // title
+		"util 72%", "(llm 65%)", // util label
+		"mem 70%",               // mem label (24106127360/32GiB ≈ 70%)
+		"qwen36-35b-mtp", "t/s", // GPU0's mapped server
+		"PID", "llama-server", // proc table
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("panel missing %q\n%s", want, out)
+		}
+	}
+	// Charts render braille cells.
+	if !strings.ContainsFunc(out, func(r rune) bool { return r >= 0x2800 && r <= 0x28FF }) {
+		t.Error("no braille chart cells rendered")
+	}
+	// Only GPU0 content: GPU1's server and procs must not leak in.
+	for _, leak := range []string{"embeddinggemma", "kwin_wayland"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("GPU1 content %q leaked into GPU0 panel\n%s", leak, out)
+		}
+	}
+}
+
+func TestRenderGPUPanelGeometry(t *testing.T) {
+	hrs := buildHostRenders(SampleHostStates())
+	out := renderGPUPanel(hrs[0], 0, 70, 24, 4, true, false, DefaultTheme())
+
+	lines := strings.Split(out, "\n")
+	if len(lines) != 26 { // contentH + 2 border rows
+		t.Errorf("panel height = %d lines, want 26", len(lines))
+	}
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w != 70 {
+			t.Errorf("panel line width = %d, want exactly 70: %q", w, line)
+		}
+	}
+}
+
+func TestRenderGPUPanelChartsTierOmitsProcs(t *testing.T) {
+	hrs := buildHostRenders(SampleHostStates())
+	out := renderGPUPanel(hrs[0], 0, 70, 16, 4, false, false, DefaultTheme())
+	if strings.Contains(out, "PID") || strings.Contains(out, "more") {
+		t.Errorf("showProcs=false must omit the process table\n%s", out)
 	}
 }
