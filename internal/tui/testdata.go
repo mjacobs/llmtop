@@ -18,6 +18,7 @@ var sampleTS = time.Unix(1_700_000_000, 0)
 //   - "alpha": healthy, 2 GPUs, 2 servers (one with Metrics nil, i.e.
 //     "--metrics off"), and 5 GPU processes (llm/graphics/other classes,
 //     including an SM%-unknown one) for the drill-down process table.
+//     Server PIDs match the llama-server procs so each maps to its GPU.
 //   - "bravo": reachable host whose one server has Status loading.
 //   - "charlie": unreachable — ErrMsg set, no Snap.
 //
@@ -54,6 +55,7 @@ func SampleHostStates() []*HostState {
 			{
 				Kind: "llama.cpp", Endpoint: "http://127.0.0.1:8080",
 				Status: model.StatusOK, Model: "qwen36-35b-mtp",
+				PID:     2310469,
 				CtxSize: 262144, SlotsTotal: 2,
 				Metrics: &model.LLMMetrics{
 					PromptTokensTotal:    16121,
@@ -66,6 +68,7 @@ func SampleHostStates() []*HostState {
 			{
 				Kind: "llama.cpp", Endpoint: "http://127.0.0.1:8090",
 				Status: model.StatusOK, Model: "embeddinggemma",
+				PID:     2310480,
 				CtxSize: 8192, SlotsTotal: 1,
 				Metrics: nil, // --metrics off
 			},
