@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mjacobs/llmtop/internal/model"
@@ -82,5 +83,51 @@ func TestBuildHostRenders(t *testing.T) {
 	// charlie: unreachable, no Snap → empty mapping, no panic.
 	if len(hrs[2].byGPU) != 0 || len(hrs[2].hostLevel) != 0 {
 		t.Errorf("dead host must have empty mapping")
+	}
+}
+
+func TestPanelProcLinesFiltersAndDropsGPUColumn(t *testing.T) {
+	h := SampleHostStates()[0] // 3 procs on GPU0, 2 on GPU1
+	lines := panelProcLines(h.Snap.Procs, 0, DefaultTheme(), 80, 10)
+
+	if len(lines) != 4 { // header + 3 GPU0 rows
+		t.Fatalf("lines = %d, want 4:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	if strings.Contains(lines[0], "GPU") {
+		t.Errorf("per-GPU table must not have a GPU column: %q", lines[0])
+	}
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "kwin_wayland") { // GPU1-only proc
+		t.Errorf("GPU1 proc leaked into GPU0 table:\n%s", joined)
+	}
+	if !strings.Contains(joined, "llama-server") || !strings.Contains(joined, "Xorg") {
+		t.Errorf("GPU0 procs missing:\n%s", joined)
+	}
+	// VRAM-descending: llama-server (21G) first.
+	if !strings.Contains(lines[1], "llama-server") {
+		t.Errorf("rows not VRAM-descending: %q", lines[1])
+	}
+}
+
+func TestPanelProcLinesBudget(t *testing.T) {
+	h := SampleHostStates()[0]
+	th := DefaultTheme()
+
+	if got := panelProcLines(h.Snap.Procs, 0, th, 80, 0); got != nil {
+		t.Errorf("budget 0 must render nothing, got %d lines", len(got))
+	}
+	// Budget 1: "+N more" replaces the header (3 procs on GPU0).
+	lines := panelProcLines(h.Snap.Procs, 0, th, 80, 1)
+	if len(lines) != 1 || !strings.Contains(lines[0], "+3 more") {
+		t.Errorf("budget-1 = %v, want single \"+3 more\" line", lines)
+	}
+	// Budget 3: header + 1 row + "+2 more" footer.
+	lines = panelProcLines(h.Snap.Procs, 0, th, 80, 3)
+	if len(lines) != 3 || !strings.Contains(lines[2], "+2 more") {
+		t.Errorf("budget-3 = %v, want header+row+footer", lines)
+	}
+	// A GPU with no procs renders nothing regardless of budget.
+	if got := panelProcLines(h.Snap.Procs, 7, th, 80, 5); got != nil {
+		t.Errorf("no-proc GPU must render nothing, got %v", got)
 	}
 }

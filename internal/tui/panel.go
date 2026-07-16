@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -133,4 +134,77 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 	default:
 		return "  " + th.Dim.Render("metrics disabled — start llama-server with --metrics")
 	}
+}
+
+// Panel proc-table column widths (no GPU column — the panel is per-GPU),
+// derived from the header literal `PID      NAME                 CLASS     VRAM     SM%`.
+const (
+	pColPID   = 9
+	pColName  = 21
+	pColClass = 10
+	pColVRAM  = 9
+)
+
+// panelProcLines renders the process table for one GPU: header plus rows
+// filtered to gpuIdx, sorted by MemBytes descending, with a "+N more"
+// footer when budget truncates rows. budget is the number of visual rows
+// available: non-positive renders nothing, and a single-row budget with
+// rows present renders "+N more" in place of the header so hidden rows are
+// never silently dropped. A GPU with no processes renders nothing.
+func panelProcLines(procs []model.GPUProc, gpuIdx int, th Theme, width, budget int) []string {
+	var mine []model.GPUProc
+	for _, p := range procs {
+		if p.GPUIndex == gpuIdx {
+			mine = append(mine, p)
+		}
+	}
+	if budget <= 0 || len(mine) == 0 {
+		return nil
+	}
+	if budget == 1 {
+		return []string{truncateLine(th.Dim.Render(fmt.Sprintf("+%d more", len(mine))), width)}
+	}
+	header := fmt.Sprintf("%-*s%-*s%-*s%-*s%s",
+		pColPID, "PID", pColName, "NAME", pColClass, "CLASS", pColVRAM, "VRAM", "SM%")
+	lines := []string{truncateLine(header, width)}
+	rowBudget := budget - 1
+
+	// Stable sort so equal-VRAM processes keep a fixed order frame to frame.
+	sort.SliceStable(mine, func(i, j int) bool { return mine[i].MemBytes > mine[j].MemBytes })
+
+	shown := len(mine)
+	truncated := false
+	if shown > rowBudget {
+		truncated = true
+		shown = rowBudget - 1 // reserve one row for the "+N more" footer
+		if shown < 0 {
+			shown = 0
+		}
+	}
+	for _, p := range mine[:shown] {
+		lines = append(lines, truncateLine(panelProcRow(p, th), width))
+	}
+	if truncated {
+		lines = append(lines, truncateLine(th.Dim.Render(fmt.Sprintf("+%d more", len(mine)-shown)), width))
+	}
+	return lines
+}
+
+// panelProcRow renders one per-GPU process row, coloring the CLASS column
+// and rendering an unknown (-1) SM% as "--".
+func panelProcRow(p model.GPUProc, th Theme) string {
+	sm := "--"
+	if p.SMUtilPct >= 0 {
+		sm = fmt.Sprintf("%d%%", p.SMUtilPct)
+	}
+	classStyle := th.Dim
+	switch p.Class {
+	case model.ProcLLM:
+		classStyle = th.LLM
+	case model.ProcGraphics:
+		classStyle = th.Mem
+	}
+	return fmt.Sprintf("%-*d%-*.*s", pColPID, p.PID, pColName, pColName, p.Name) +
+		classStyle.Render(fmt.Sprintf("%-*s", pColClass, string(p.Class))) +
+		fmt.Sprintf("%-*s%s", pColVRAM, FmtBytes(p.MemBytes), sm)
 }
