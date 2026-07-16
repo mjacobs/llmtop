@@ -5,8 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/mjacobs/llmtop/internal/model"
 )
 
@@ -86,29 +84,6 @@ func RenderDrilldown(h *HostState, gpuSel, width, height int, th Theme) string {
 		Render(strings.Join(lines, "\n"))
 }
 
-// renderGraph renders a two-series braille area chart, coloring "llm"-class
-// cells with accent and "total"-class cells with base.
-func renderGraph(total, llm []float64, chartW, chartH int, base, accent lipgloss.Style) string {
-	rows := BrailleGraph(total, llm, 100, chartW, chartH)
-	var b strings.Builder
-	for y, row := range rows {
-		if y > 0 {
-			b.WriteByte('\n')
-		}
-		for _, cell := range row {
-			switch cell[1] {
-			case "llm":
-				b.WriteString(accent.Render(cell[0]))
-			case "total":
-				b.WriteString(base.Render(cell[0]))
-			default:
-				b.WriteString(cell[0])
-			}
-		}
-	}
-	return b.String()
-}
-
 // drilldownTitle renders the host name, hostname/driver detail, and a 1-based
 // "gpu N/total" indicator.
 func drilldownTitle(h *HostState, gpuSel, n int, th Theme) string {
@@ -126,56 +101,6 @@ func drilldownTitle(h *HostState, gpuSel, n int, th Theme) string {
 	}
 	dim := fmt.Sprintf(" · %s · driver %s%s", hostname, driver, gpuIndicator)
 	return th.Title.Render(h.Name) + th.Dim.Render(dim)
-}
-
-// utilLabel renders the util-chart label: `GPU0 NVIDIA RTX 4090 — util 72% (llm 65%)`.
-func utilLabel(gpu model.GPU, th Theme) string {
-	return fmt.Sprintf("GPU%d %s — ", gpu.Index, gpu.Name) +
-		th.Util.Render(fmt.Sprintf("util %d%%", gpu.UtilPct)) + " " +
-		th.LLM.Render(fmt.Sprintf("(llm %d%%)", gpu.LLMUtilPct))
-}
-
-// memLabel renders the mem-chart label: `mem 61% 22.5/32.0G (llm 20.0G)`.
-func memLabel(gpu model.GPU, th Theme) string {
-	memPct := int(pct(gpu.MemUsed, gpu.MemTotal) + 0.5)
-	return th.Mem.Render(fmt.Sprintf("mem %d%% %s", memPct, FmtMemPair(gpu.MemUsed, gpu.MemTotal))) + " " +
-		th.LLM.Render(fmt.Sprintf("(llm %s)", FmtBytes(gpu.LLMMemBytes)))
-}
-
-// serverLine1 renders a server's identity line: bullet, model/endpoint,
-// kind, endpoint, status.
-func serverLine1(srv *model.LLMServer, th Theme) string {
-	label := srv.Model
-	if label == "" {
-		label = srv.Endpoint
-	}
-	return th.LLM.Render("● ") + strings.Join([]string{label, srv.Kind, srv.Endpoint, srv.Status}, "  ")
-}
-
-// serverLine2 renders a server's detail line: generation stats, a "metrics
-// disabled" hint, or a router tag — indented two spaces under line 1.
-func serverLine2(srv *model.LLMServer, th Theme) string {
-	switch {
-	case srv.Role == "router":
-		return "  " + th.Dim.Render("router — spawns model instances on demand")
-	case srv.Metrics != nil:
-		m := srv.Metrics
-		parts := []string{
-			fmt.Sprintf("prompt %.1f t/s", m.PromptTPS),
-			fmt.Sprintf("gen %.1f t/s", m.PredictedTPS),
-		}
-		if m.KVCacheUsage >= 0 {
-			parts = append(parts, fmt.Sprintf("kv %.0f%%", m.KVCacheUsage*100))
-		}
-		parts = append(parts, fmt.Sprintf("queue %d", m.RequestsDeferred))
-		if srv.SlotsTotal > 0 {
-			parts = append(parts, fmt.Sprintf("slots %d/%d", m.RequestsProcessing, srv.SlotsTotal))
-		}
-		parts = append(parts, fmt.Sprintf("ctx %d", srv.CtxSize))
-		return "  " + th.LLM.Render(strings.Join(parts, " · "))
-	default:
-		return "  " + th.Dim.Render("metrics disabled — start llama-server with --metrics")
-	}
 }
 
 // procTableLines renders the process-table header plus as many rows
