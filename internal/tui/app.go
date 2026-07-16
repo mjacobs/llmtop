@@ -10,13 +10,6 @@ import (
 	"github.com/mjacobs/llmtop/internal/client"
 )
 
-type mode int
-
-const (
-	modeOverview mode = iota
-	modeDrill
-)
-
 const (
 	minRefresh = 250 * time.Millisecond
 	maxRefresh = 10 * time.Second
@@ -25,7 +18,7 @@ const (
 type updateMsg client.Update
 
 // App is the bubbletea root model: it owns per-host state, the current
-// view mode/selection, and the refresh/pause controls. It never talks to
+// GPU-panel selection, and the refresh/pause controls. It never talks to
 // collectors or the network directly — run.go wires those up and feeds
 // this App a read-only channel of client.Update values.
 type App struct {
@@ -36,9 +29,7 @@ type App struct {
 	onRefresh  func(time.Duration)
 	version    string
 
-	mode          mode
-	selected      int
-	gpuSel        int
+	selected      int // flat GPU-panel index in render order
 	paused        bool
 	showHelp      bool
 	width, height int
@@ -92,26 +83,13 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 
 	case "j", "down":
-		if a.selected < len(a.hosts)-1 {
+		if a.selected < a.panelCount()-1 {
 			a.selected++
 		}
 
 	case "k", "up":
 		if a.selected > 0 {
 			a.selected--
-		}
-
-	case "enter":
-		a.mode = modeDrill
-
-	case "esc":
-		a.mode = modeOverview
-
-	case "tab":
-		if a.mode == modeDrill {
-			if n := a.selectedGPUCount(); n > 0 {
-				a.gpuSel = (a.gpuSel + 1) % n
-			}
 		}
 
 	case "p":
@@ -143,28 +121,24 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// selectedGPUCount returns the GPU count of the currently selected host, or
-// 0 when it has no snapshot yet.
-func (a *App) selectedGPUCount() int {
-	if a.selected < 0 || a.selected >= len(a.hosts) {
-		return 0
+// panelCount is the number of GPU panels across all hosts — the selection
+// domain (hosts without a snapshot contribute none).
+func (a *App) panelCount() int {
+	n := 0
+	for _, h := range a.hosts {
+		if h.Snap != nil {
+			n += len(h.Snap.GPUs)
+		}
 	}
-	h := a.hosts[a.selected]
-	if h.Snap == nil {
-		return 0
-	}
-	return len(h.Snap.GPUs)
+	return n
 }
 
-const helpText = "q quit · j/k select · enter drill-down · esc overview · tab next gpu · p pause · +/- refresh · ? help"
+const helpText = "q quit · j/k select · p pause · +/- refresh · ? help"
 
 var fullHelp = []string{
 	"q / ctrl+c   quit",
-	"j / down     select next host",
-	"k / up       select previous host",
-	"enter        open drill-down for selected host",
-	"esc          return to overview",
-	"tab          next GPU (drill-down only)",
+	"j / down     select next GPU panel",
+	"k / up       select previous GPU panel",
 	"p            pause/resume updates",
 	"+ / =        halve refresh interval (floor 250ms)",
 	"-            double refresh interval (cap 10s)",
@@ -177,20 +151,14 @@ func (a *App) View() string {
 		header += " ⏸"
 	}
 
-	var body string
-	switch a.mode {
-	case modeDrill:
-		if a.selected >= 0 && a.selected < len(a.hosts) {
-			body = RenderDrilldown(a.hosts[a.selected], a.gpuSel, a.width, a.height-2, a.theme)
-		}
-	default:
-		body = RenderOverview(a.hosts, a.selected, a.width, a.height-2, a.theme)
-	}
-
 	footer := a.theme.Dim.Render(helpText)
+	footerLines := 1
 	if a.showHelp {
 		footer = a.theme.Dim.Render(strings.Join(fullHelp, "\n"))
+		footerLines = len(fullHelp)
 	}
+
+	body := RenderOverview(a.hosts, a.selected, a.width, a.height-1-footerLines, a.theme)
 
 	return strings.Join([]string{header, body, footer}, "\n")
 }

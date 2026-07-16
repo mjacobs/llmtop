@@ -22,30 +22,53 @@ func key(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
 
-func TestNavigationAndModes(t *testing.T) {
-	a, _ := testApp()
+func TestNavigationAcrossGPUPanels(t *testing.T) {
+	a, ch := testApp()
 	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	a = m.(*App)
+
+	// No snapshots yet → zero panels → j is a no-op.
+	m, _ = a.Update(key("j"))
+	a = m.(*App)
+	if a.selected != 0 {
+		t.Fatalf("selected with no panels = %d, want 0", a.selected)
+	}
+
+	// One 1-GPU snapshot per host → 2 panels.
+	for _, hostName := range []string{"h1", "h2"} {
+		ch <- client.Update{Host: hostName, Snapshot: &model.Snapshot{
+			Timestamp: time.Unix(1_700_000_000, 0),
+			Host:      model.HostInfo{Name: hostName},
+			GPUs:      []model.GPU{{Index: 0, UtilPct: 50, MemUsed: 1, MemTotal: 2}}}}
+		m, _ = a.Update(a.readUpdate()())
+		a = m.(*App)
+	}
 
 	m, _ = a.Update(key("j"))
 	a = m.(*App)
 	if a.selected != 1 {
 		t.Fatalf("selected = %d, want 1", a.selected)
 	}
-	m, _ = a.Update(key("j")) // clamp at last host
+	m, _ = a.Update(key("j")) // clamp at last panel
 	a = m.(*App)
 	if a.selected != 1 {
 		t.Fatalf("selected = %d, want 1 (clamped)", a.selected)
 	}
+	m, _ = a.Update(key("k"))
+	a = m.(*App)
+	if a.selected != 0 {
+		t.Fatalf("selected = %d, want 0", a.selected)
+	}
+
+	// enter/esc/tab are gone: they must not disturb state.
 	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	a = m.(*App)
-	if a.mode != modeDrill {
-		t.Fatal("enter must open drill-down")
-	}
 	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	a = m.(*App)
-	if a.mode != modeOverview {
-		t.Fatal("esc must return to overview")
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyTab})
+	a = m.(*App)
+	if a.selected != 0 {
+		t.Fatalf("removed keys must be no-ops, selected = %d", a.selected)
 	}
 }
 
@@ -132,5 +155,8 @@ func TestViewRenders(t *testing.T) {
 	out := a.View()
 	if out == "" || !strings.Contains(out, "llmtop") || !strings.Contains(out, "h1") {
 		t.Fatalf("view:\n%s", out)
+	}
+	if strings.Contains(out, "drill-down") {
+		t.Fatalf("footer must not mention the removed drill-down:\n%s", out)
 	}
 }
