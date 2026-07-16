@@ -183,3 +183,46 @@ func TestRenderGPUPanelChartsTierOmitsProcs(t *testing.T) {
 		t.Errorf("showProcs=false must omit the process table\n%s", out)
 	}
 }
+
+func TestRenderHostStrip(t *testing.T) {
+	hrs := buildHostRenders(SampleHostStates())
+	th := DefaultTheme()
+
+	// alpha: all servers map to GPUs → strip is just the title line.
+	out := renderHostStrip(hrs[0], 100, th)
+	if !strings.Contains(out, "alpha") || !strings.Contains(out, "driver 580.65.06") {
+		t.Errorf("strip missing title content:\n%s", out)
+	}
+	if strings.Contains(out, "qwen36-35b-mtp") {
+		t.Errorf("GPU-mapped server must not appear in the host strip:\n%s", out)
+	}
+
+	// bravo: PID-less server → 2-line host-level block.
+	out = renderHostStrip(hrs[1], 100, th)
+	if !strings.Contains(out, "http://192.0.2.20:8080") || !strings.Contains(out, "loading") {
+		t.Errorf("host-level server block missing:\n%s", out)
+	}
+
+	// charlie: unreachable → banner.
+	out = renderHostStrip(hrs[2], 100, th)
+	if !strings.Contains(out, "unreachable") {
+		t.Errorf("dead host banner missing:\n%s", out)
+	}
+
+	// Width clamp.
+	for _, line := range strings.Split(renderHostStrip(hrs[1], 40, th), "\n") {
+		if w := lipgloss.Width(line); w > 40 {
+			t.Errorf("strip line width %d > 40: %q", w, line)
+		}
+	}
+}
+
+func TestHostStripContentLinesMatchesRender(t *testing.T) {
+	for i, hr := range buildHostRenders(SampleHostStates()) {
+		got := len(strings.Split(renderHostStrip(hr, 100, DefaultTheme()), "\n"))
+		want := hostStripContentLines(hr) + 2 // border top+bottom
+		if got != want {
+			t.Errorf("host %d: rendered %d lines, accounting says %d", i, got, want)
+		}
+	}
+}

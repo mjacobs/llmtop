@@ -264,3 +264,47 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 	return border.Width(width-2).Height(contentH).Padding(0, 1).
 		Render(strings.Join(lines, "\n"))
 }
+
+// renderHostStrip renders a host's slim full-width strip: title line,
+// host-level server blocks (servers that could not be mapped to a GPU,
+// e.g. the router), collection errors, and the stale/unreachable banner.
+// Selection never lands here, so it always uses the passive border.
+func renderHostStrip(hr hostRender, width int, th Theme) string {
+	inner := width - 4
+	if inner < 1 {
+		inner = 1
+	}
+	h := hr.h
+	var lines []string
+	lines = append(lines, titleLine(h, th, inner))
+	for _, srv := range hr.hostLevel {
+		lines = append(lines, truncateLine(serverLine1(srv, th), inner))
+		lines = append(lines, truncateLine(serverLine2(srv, th), inner))
+	}
+	if h.Snap != nil {
+		for _, e := range h.Snap.Errors {
+			lines = append(lines, truncateLine(th.Err.Render("! "+e), inner))
+		}
+	}
+	if h.ErrMsg != "" {
+		prefix := "unreachable: "
+		if h.Snap != nil {
+			prefix = "stale: "
+		}
+		lines = append(lines, truncateLine(th.Err.Render(prefix+h.ErrMsg), inner))
+	}
+	return th.Border.Width(width-2).Padding(0, 1).Render(strings.Join(lines, "\n"))
+}
+
+// hostStripContentLines counts the content lines renderHostStrip emits —
+// the solver's line accounting must match the renderer exactly.
+func hostStripContentLines(hr hostRender) int {
+	n := 1 + 2*len(hr.hostLevel)
+	if hr.h.Snap != nil {
+		n += len(hr.h.Snap.Errors)
+	}
+	if hr.h.ErrMsg != "" {
+		n++
+	}
+	return n
+}
