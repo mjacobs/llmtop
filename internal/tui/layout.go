@@ -110,7 +110,10 @@ func rowMaxFixed(hr hostRender, row, cols int, t tier) int {
 // minimum process-table allocation when the GPU has processes.
 func panelFixedContentLines(hr hostRender, gpuIdx int, t tier) int {
 	gpu := hr.h.Snap.GPUs[gpuIdx]
-	n := 3 + 2*len(hr.byGPU[gpu.Index])
+	n := 3
+	for _, srv := range hr.byGPU[gpu.Index] {
+		n += serverBlockLineCount(srv)
+	}
 	if t == tierFull && gpuHasProcs(hr.h.Snap.Procs, gpu.Index) {
 		n += procMinLines
 	}

@@ -118,9 +118,13 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 		return "  " + th.Dim.Render("router — spawns model instances on demand")
 	case srv.Metrics != nil:
 		m := srv.Metrics
+		gen := fmt.Sprintf("gen %.1f t/s", m.PredictedTPS)
+		if m.PredictedTPSEst {
+			gen = fmt.Sprintf("gen ~%.0f t/s", m.PredictedTPS)
+		}
 		parts := []string{
 			fmt.Sprintf("prompt %.1f t/s", m.PromptTPS),
-			fmt.Sprintf("gen %.1f t/s", m.PredictedTPS),
+			gen,
 		}
 		if m.KVCacheUsage >= 0 {
 			parts = append(parts, fmt.Sprintf("kv %.0f%%", m.KVCacheUsage*100))
@@ -134,6 +138,55 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 	default:
 		return "  " + th.Dim.Render("metrics disabled — start llama-server with --metrics")
 	}
+}
+
+// serverBlockLines renders one server's block: identity line, detail line,
+// and — only when srv.Metrics != nil — a third gen-t/s sparkline line drawn
+// from h.GenTPSHist[srv.Endpoint] (empty/absent history still renders a
+// blank sparkline so the line count stays deterministic). Used by both
+// renderGPUPanel and renderHostStrip so the two rendering sites can't drift.
+//
+// IMPORTANT: the length of this function's return value must always equal
+// serverBlockLineCount(srv) — the layout solver counts lines via that
+// function without rendering, so the two must be kept in lockstep by
+// construction whenever this renderer changes.
+func serverBlockLines(h *HostState, srv *model.LLMServer, th Theme, width int) []string {
+	lines := []string{
+		truncateLine(serverLine1(srv, th), width),
+		truncateLine(serverLine2(srv, th), width),
+	}
+	if srv.Metrics == nil {
+		return lines
+	}
+	var series []float64
+	if r := h.GenTPSHist[srv.Endpoint]; r != nil {
+		series = r.Slice()
+	}
+	max := 1.0
+	for _, v := range series {
+		if v > max {
+			max = v
+		}
+	}
+	w := width - 10
+	if w < 8 {
+		w = 8
+	}
+	spark := "  " + Sparkline(series, max, w) + " gen t/s"
+	lines = append(lines, truncateLine(th.LLM.Render(spark), width))
+	return lines
+}
+
+// serverBlockLineCount is the line count serverBlockLines produces for srv:
+// 3 when srv.Metrics != nil (identity + detail + sparkline), else 2. The
+// solver (hostStripContentLines, panelFixedContentLines) uses this instead
+// of rendering, so it must always agree with serverBlockLines's actual
+// output length.
+func serverBlockLineCount(srv *model.LLMServer) int {
+	if srv.Metrics != nil {
+		return 3
+	}
+	return 2
 }
 
 // Panel proc-table column widths (no GPU column — the panel is per-GPU),
@@ -246,8 +299,7 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 	lines = append(lines, strings.Split(memChart, "\n")...)
 
 	for _, srv := range hr.byGPU[gpu.Index] {
-		lines = append(lines, truncateLine(serverLine1(srv, th), inner))
-		lines = append(lines, truncateLine(serverLine2(srv, th), inner))
+		lines = append(lines, serverBlockLines(h, srv, th, inner)...)
 	}
 
 	if showProcs {
@@ -278,8 +330,7 @@ func renderHostStrip(hr hostRender, width int, th Theme) string {
 	var lines []string
 	lines = append(lines, titleLine(h, th, inner))
 	for _, srv := range hr.hostLevel {
-		lines = append(lines, truncateLine(serverLine1(srv, th), inner))
-		lines = append(lines, truncateLine(serverLine2(srv, th), inner))
+		lines = append(lines, serverBlockLines(h, srv, th, inner)...)
 	}
 	if h.Snap != nil {
 		for _, e := range h.Snap.Errors {
@@ -299,7 +350,10 @@ func renderHostStrip(hr hostRender, width int, th Theme) string {
 // hostStripContentLines counts the content lines renderHostStrip emits —
 // the solver's line accounting must match the renderer exactly.
 func hostStripContentLines(hr hostRender) int {
-	n := 1 + 2*len(hr.hostLevel)
+	n := 1
+	for _, srv := range hr.hostLevel {
+		n += serverBlockLineCount(srv)
+	}
 	if hr.h.Snap != nil {
 		n += len(hr.h.Snap.Errors)
 	}

@@ -176,6 +176,32 @@ func TestRenderGPUPanelGeometry(t *testing.T) {
 	}
 }
 
+func TestRenderGPUPanelSparklineLine(t *testing.T) {
+	hrs := buildHostRenders(SampleHostStates())
+	// GPU0's server has Metrics: sparkline line must appear.
+	out := renderGPUPanel(hrs[0], 0, 70, 25, 4, true, false, DefaultTheme())
+	hasSparkLine := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "gen t/s") {
+			hasSparkLine = true
+			if !strings.ContainsFunc(line, func(r rune) bool { return r >= '▁' && r <= '█' }) {
+				t.Errorf("gen t/s line has no spark rune: %q", line)
+			}
+		}
+	}
+	if !hasSparkLine {
+		t.Errorf("GPU0 panel (metrics-bearing server) must render a gen t/s sparkline line:\n%s", out)
+	}
+
+	// GPU1's server has Metrics: nil ("--metrics off") — no sparkline line.
+	out = renderGPUPanel(hrs[0], 1, 70, 24, 4, true, false, DefaultTheme())
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "gen t/s") {
+			t.Errorf("GPU1 panel (metrics-off server) must not render a sparkline line: %q", line)
+		}
+	}
+}
+
 func TestRenderGPUPanelChartsTierOmitsProcs(t *testing.T) {
 	hrs := buildHostRenders(SampleHostStates())
 	out := renderGPUPanel(hrs[0], 0, 70, 16, 4, false, false, DefaultTheme())
@@ -214,6 +240,96 @@ func TestRenderHostStrip(t *testing.T) {
 		if w := lipgloss.Width(line); w > 40 {
 			t.Errorf("strip line width %d > 40: %q", w, line)
 		}
+	}
+}
+
+func TestServerLine2EstimatedMarker(t *testing.T) {
+	th := DefaultTheme()
+	measured := &model.LLMServer{
+		Metrics: &model.LLMMetrics{PromptTPS: 10.5, PredictedTPS: 142.34, KVCacheUsage: -1},
+	}
+	if got := serverLine2(measured, th); !strings.Contains(got, "gen 142.3 t/s") {
+		t.Errorf("measured rate: got %q, want it to contain %q", got, "gen 142.3 t/s")
+	}
+	estimated := &model.LLMServer{
+		Metrics: &model.LLMMetrics{PromptTPS: 10.5, PredictedTPS: 142.34, KVCacheUsage: -1, PredictedTPSEst: true},
+	}
+	got := serverLine2(estimated, th)
+	if !strings.Contains(got, "gen ~142 t/s") {
+		t.Errorf("estimated rate: got %q, want it to contain %q", got, "gen ~142 t/s")
+	}
+	if strings.Contains(got, "142.3") || strings.Contains(got, "142.34") {
+		t.Errorf("estimated rate must not render decimals: %q", got)
+	}
+}
+
+// serverBlockMatrix covers the three server shapes serverBlockLines /
+// serverBlockLineCount must agree on: metrics-bearing, metrics-off, router.
+func serverBlockMatrix() []*model.LLMServer {
+	return []*model.LLMServer{
+		{
+			Endpoint: "http://h:8080", Status: model.StatusOK, Model: "m",
+			Metrics: &model.LLMMetrics{PromptTPS: 1, PredictedTPS: 2, KVCacheUsage: -1},
+		},
+		{
+			Endpoint: "http://h:8081", Status: model.StatusOK, Model: "m2",
+			Metrics: nil,
+		},
+		{
+			Endpoint: "http://h:8082", Role: "router",
+		},
+	}
+}
+
+func TestServerBlockLinesMatchesCount(t *testing.T) {
+	h := NewHostState("x")
+	th := DefaultTheme()
+	for _, srv := range serverBlockMatrix() {
+		got := len(serverBlockLines(h, srv, th, 70))
+		want := serverBlockLineCount(srv)
+		if got != want {
+			t.Errorf("endpoint %s: serverBlockLines returned %d lines, serverBlockLineCount says %d",
+				srv.Endpoint, got, want)
+		}
+	}
+}
+
+func TestServerBlockLinesSparkline(t *testing.T) {
+	h := NewHostState("x")
+	th := DefaultTheme()
+	metricsSrv := serverBlockMatrix()[0]
+	// Push a couple of samples so the sparkline has non-blank content.
+	ringPushStr(h.GenTPSHist, metricsSrv.Endpoint, 10)
+	ringPushStr(h.GenTPSHist, metricsSrv.Endpoint, 90)
+
+	lines := serverBlockLines(h, metricsSrv, th, 70)
+	if len(lines) != 3 {
+		t.Fatalf("metrics-bearing server: got %d lines, want 3:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	sparkLine := lines[2]
+	if !strings.Contains(sparkLine, "gen t/s") {
+		t.Errorf("sparkline line missing suffix: %q", sparkLine)
+	}
+	hasSpark := strings.ContainsFunc(sparkLine, func(r rune) bool { return r >= '▁' && r <= '█' })
+	if !hasSpark {
+		t.Errorf("sparkline line has no spark rune: %q", sparkLine)
+	}
+
+	metricsOffSrv := serverBlockMatrix()[1]
+	lines = serverBlockLines(h, metricsOffSrv, th, 70)
+	if len(lines) != 2 {
+		t.Errorf("metrics-off server: got %d lines, want 2", len(lines))
+	}
+	for _, l := range lines {
+		if strings.Contains(l, "gen t/s") {
+			t.Errorf("metrics-off server must not have a sparkline line: %q", l)
+		}
+	}
+
+	routerSrv := serverBlockMatrix()[2]
+	lines = serverBlockLines(h, routerSrv, th, 70)
+	if len(lines) != 2 {
+		t.Errorf("router server: got %d lines, want 2", len(lines))
 	}
 }
 
