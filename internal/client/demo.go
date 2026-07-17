@@ -64,7 +64,7 @@ func demoSnapshot(name string, gpus int, phase float64, step int) model.Snapshot
 		Status: model.StatusOK, Model: "qwen36-35b-demo", CtxSize: 262144, SlotsTotal: 2,
 		Metrics: &model.LLMMetrics{
 			PromptTokensTotal: float64(10000 + step*37), PredictedTokensTotal: float64(50000 + step*11),
-			PromptTPS: 2400 + 500*math.Sin(float64(step)/4.0), PredictedTPS: gen,
+			PromptTPS: 2400 + 500*math.Sin(float64(step)/4.0), PredictedTPS: gen, PredictedTPSEst: step%3 != 0,
 			KVCacheUsage: 0.2 + 0.15*math.Sin(float64(step)/11.0), RequestsProcessing: step % 3, RequestsDeferred: 0,
 		},
 	})

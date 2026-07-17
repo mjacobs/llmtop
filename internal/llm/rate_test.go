@@ -272,6 +272,77 @@ func TestRateTracker_PromptIndependentAndNeverEstimated(t *testing.T) {
 	}
 }
 
+// TestRateTracker_DecodeAlsoFrozenEstimatesZero verifies that when the
+// predicted counter is frozen, busy is true, AND the decode counter is
+// also frozen, the in-flight estimate is exactly 0 (not left over from a
+// prior poll), with Estimated still true.
+func TestRateTracker_DecodeAlsoFrozenEstimatesZero(t *testing.T) {
+	rt := NewRateTracker()
+	t0 := time.Unix(9100, 0)
+
+	rt.TPS("http://a", t0, 100, 200, 300, false) // prime
+
+	t1 := t0.Add(1 * time.Second)
+	if _, ok := rt.TPS("http://a", t1, 100, 200, 300, false); !ok { // idle, anchor -> t1
+		t.Fatal("idle poll should be ok")
+	}
+
+	t2 := t1.Add(1 * time.Second)
+	res, ok := rt.TPS("http://a", t2, 100, 200, 300, true) // busy, predicted AND decode frozen
+	if !ok {
+		t.Fatalf("busy+frozen poll: ok=false")
+	}
+	if !res.Estimated {
+		t.Fatalf("res.Estimated = false, want true")
+	}
+	if res.PredictedTPS != 0 {
+		t.Fatalf("PredictedTPS = %v, want exactly 0 (decode counter also frozen)", res.PredictedTPS)
+	}
+}
+
+// TestRateTracker_RatioRetainedWhenDeltaDecodesZero verifies that a
+// predicted-change event whose Δdecodes is 0 (over the same anchor window)
+// skips the ratio update, retaining the prior learned ratio for later
+// estimates rather than resetting to the default or recomputing from a
+// zero denominator.
+func TestRateTracker_RatioRetainedWhenDeltaDecodesZero(t *testing.T) {
+	rt := NewRateTracker()
+	t0 := time.Unix(9200, 0)
+
+	rt.TPS("http://a", t0, 0, 0, 0, false) // prime
+
+	t1 := t0.Add(1 * time.Second)
+	if _, ok := rt.TPS("http://a", t1, 0, 0, 0, false); !ok { // idle, anchor -> t1
+		t.Fatal("idle poll should be ok")
+	}
+
+	// Completion: predicted +300 over 3s, decodes +150 over the same
+	// window -> ratio = 300/150 = 2.0.
+	t2 := t1.Add(3 * time.Second)
+	res, ok := rt.TPS("http://a", t2, 0, 300, 150, false)
+	if !ok || res.Estimated || res.PredictedTPS != 100 {
+		t.Fatalf("completion poll = %+v, ok=%v, want measured PredictedTPS=100", res, ok)
+	}
+
+	// Predicted changes again, but the decode counter is unchanged since
+	// the previous anchor (Δdecodes==0): ratio update must be skipped, so
+	// the previously learned ratio (2.0) is retained.
+	t3 := t2.Add(1 * time.Second)
+	res, ok = rt.TPS("http://a", t3, 0, 350, 150, true)
+	if !ok || res.Estimated || res.PredictedTPS != 50 {
+		t.Fatalf("delta-decodes-zero poll = %+v, ok=%v, want measured PredictedTPS=50 (350-300 over 1s)", res, ok)
+	}
+
+	// Prove the ratio is still 2.0 (not reset to default 1.0, and not
+	// recomputed): a subsequent frozen+busy poll with decodes +10/1s
+	// should estimate 10*2.0=20, not 10*1.0=10.
+	t4 := t3.Add(1 * time.Second)
+	res, ok = rt.TPS("http://a", t4, 0, 350, 160, true)
+	if !ok || !res.Estimated || res.PredictedTPS != 20 {
+		t.Fatalf("post-retention estimate = %+v, ok=%v, want Estimated PredictedTPS=20 (10 decodes * retained ratio 2.0)", res, ok)
+	}
+}
+
 // TestRateTracker_NonPositiveElapsed verifies dt<=0 returns ok=false and
 // does not mutate tracker state.
 func TestRateTracker_NonPositiveElapsed(t *testing.T) {

@@ -106,6 +106,7 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string) model.LLMServer {
 			m["llamacpp:n_decode_total"], met.RequestsProcessing > 0)
 		if ok {
 			met.PromptTPS, met.PredictedTPS = res.PromptTPS, res.PredictedTPS
+			met.PredictedTPSEst = res.Estimated
 		} else { // first sample: average-since-start gauges
 			met.PromptTPS = m["llamacpp:prompt_tokens_seconds"]
 			met.PredictedTPS = m["llamacpp:predicted_tokens_seconds"]

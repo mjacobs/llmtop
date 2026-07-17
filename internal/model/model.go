@@ -74,6 +74,9 @@ type LLMMetrics struct {
 	KVCacheUsage         float64 `json:"kv_cache_usage"` // 0..1; -1 = unknown (metric absent in this build)
 	RequestsProcessing   int     `json:"requests_processing"`
 	RequestsDeferred     int     `json:"requests_deferred"`
+	// PredictedTPSEst is true when PredictedTPS is a decode-derived
+	// in-flight estimate rather than a completion-window measurement.
+	PredictedTPSEst bool `json:"predicted_tps_est,omitempty"`
 }
 
 type Snapshot struct {
