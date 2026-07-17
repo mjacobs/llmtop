@@ -101,9 +101,11 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string) model.LLMServer {
 		if v, ok := m["llamacpp:kv_cache_usage_ratio"]; ok {
 			met.KVCacheUsage = v
 		}
-		p, g, ok := a.rates.TPS(endpoint, a.Now(), met.PromptTokensTotal, met.PredictedTokensTotal)
+		res, ok := a.rates.TPS(endpoint, a.Now(),
+			met.PromptTokensTotal, met.PredictedTokensTotal,
+			m["llamacpp:n_decode_total"], met.RequestsProcessing > 0)
 		if ok {
-			met.PromptTPS, met.PredictedTPS = p, g
+			met.PromptTPS, met.PredictedTPS = res.PromptTPS, res.PredictedTPS
 		} else { // first sample: average-since-start gauges
 			met.PromptTPS = m["llamacpp:prompt_tokens_seconds"]
 			met.PredictedTPS = m["llamacpp:predicted_tokens_seconds"]
