@@ -1,0 +1,24 @@
+# llmtop agent — systemd user unit.
+#
+# Install (or use `make install-agent` from the repo, which does all this):
+#   cp llmtop-agent.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now llmtop-agent
+#
+# To survive logout/reboot without an active session, enable lingering once:
+#   loginctl enable-linger $USER
+#
+# Token/endpoint overrides belong in ~/.config/llmtop/config.toml on this
+# host, not here.
+
+[Unit]
+Description=llmtop GPU/LLM telemetry agent
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/llmtop agent --listen :9832
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

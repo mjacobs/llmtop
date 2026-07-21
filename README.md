@@ -40,6 +40,20 @@ llmtop agent --listen :9832
 llmtop --connect remote-host:9832
 ```
 
+To install the agent permanently as a systemd user service (survives
+logout/reboot when lingering is enabled), use the repo's deploy targets —
+they build locally and push over ssh, so the remote box needs no Go toolchain
+(build-host glibc must be ≤ the agent host's, since cgo links libc):
+
+```bash
+make install-agent DEPLOY_HOST=remote-host   # one-time: binary + unit, enable --now
+make deploy-agent  DEPLOY_HOST=remote-host   # later updates: rebuild, push, restart
+```
+
+The unit file lives at `contrib/llmtop-agent.service`; run
+`loginctl enable-linger $USER` once on the remote box if the service should
+run without an active login session.
+
 `--connect` only works against agents running **without** a token — the TUI
 has no `--token` flag. To reach an agent that requires one, declare the host
 in the config file instead:
