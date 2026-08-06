@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/mjacobs/llmtop/internal/model"
 )
@@ -111,6 +112,32 @@ func TestPanelProcLinesFiltersAndDropsGPUColumn(t *testing.T) {
 	}
 }
 
+func TestSectionRuleGeometry(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(previousProfile)
+
+	th := DefaultTheme()
+
+	wide := sectionRule("LLM SERVERS", 32, th)
+	if !strings.Contains(wide, "\x1b[") {
+		t.Fatalf("wide rule missing ANSI styling: %q", wide)
+	}
+	if !strings.Contains(wide, "── LLM SERVERS ") {
+		t.Fatalf("wide rule missing label: %q", wide)
+	}
+	if got := lipgloss.Width(wide); got != 32 {
+		t.Fatalf("wide rule width = %d, want 32: %q", got, wide)
+	}
+
+	for _, width := range []int{8, 1, 0} {
+		got := sectionRule("GPU PROCESSES", width, th)
+		if visual := lipgloss.Width(got); visual != width {
+			t.Errorf("width %d: visual width = %d: %q", width, visual, got)
+		}
+	}
+}
+
 func TestPanelProcLinesBudget(t *testing.T) {
 	h := SampleHostStates()[0]
 	th := DefaultTheme()
@@ -140,9 +167,12 @@ func TestRenderGPUPanelContent(t *testing.T) {
 
 	for _, want := range []string{
 		"GPU0", "NVIDIA RTX 4090", "64°", "412W", // title
+		"USAGE HISTORY",
 		"util 72%", "(llm 65%)", // util label
-		"mem 70%",               // mem label (24106127360/32GiB ≈ 70%)
+		"mem 70%", // mem label (24106127360/32GiB ≈ 70%)
+		"LLM SERVERS",
 		"qwen36-35b-mtp", "t/s", // GPU0's mapped server
+		"GPU PROCESSES",
 		"PID", "llama-server", // proc table
 	} {
 		if !strings.Contains(out, want) {
@@ -158,6 +188,33 @@ func TestRenderGPUPanelContent(t *testing.T) {
 		if strings.Contains(out, leak) {
 			t.Errorf("GPU1 content %q leaked into GPU0 panel\n%s", leak, out)
 		}
+	}
+}
+
+func TestRenderGPUPanelSectionOrderWhenRegionsAreEmpty(t *testing.T) {
+	h := NewHostState("idle")
+	h.Snap = &model.Snapshot{GPUs: []model.GPU{{
+		Index: 0,
+		Name:  "NVIDIA GPU",
+	}}}
+	hr := buildHostRenders([]*HostState{h})[0]
+
+	out := renderGPUPanel(hr, 0, 70, 10, 2, true, false, DefaultTheme())
+	last := -1
+	for _, label := range []string{
+		"GPU0 NVIDIA GPU",
+		"USAGE HISTORY",
+		"LLM SERVERS",
+		"GPU PROCESSES",
+	} {
+		at := strings.Index(out, label)
+		if at < 0 {
+			t.Fatalf("panel missing %q:\n%s", label, out)
+		}
+		if at <= last {
+			t.Fatalf("%q is out of order:\n%s", label, out)
+		}
+		last = at
 	}
 }
 
@@ -202,11 +259,19 @@ func TestRenderGPUPanelSparklineLine(t *testing.T) {
 	}
 }
 
-func TestRenderGPUPanelChartsTierOmitsProcs(t *testing.T) {
+func TestRenderGPUPanelChartsTierOmitsProcessSection(t *testing.T) {
 	hrs := buildHostRenders(SampleHostStates())
 	out := renderGPUPanel(hrs[0], 0, 70, 16, 4, false, false, DefaultTheme())
-	if strings.Contains(out, "PID") || strings.Contains(out, "more") {
-		t.Errorf("showProcs=false must omit the process table\n%s", out)
+
+	for _, want := range []string{"USAGE HISTORY", "LLM SERVERS"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("CHARTS panel missing %q:\n%s", want, out)
+		}
+	}
+	for _, omitted := range []string{"GPU PROCESSES", "PID", "more"} {
+		if strings.Contains(out, omitted) {
+			t.Errorf("CHARTS panel must omit %q:\n%s", omitted, out)
+		}
 	}
 }
 
@@ -277,6 +342,7 @@ func serverBlockMatrix() []*model.LLMServer {
 		},
 		{
 			Endpoint: "http://h:8082", Role: "router",
+			Metrics: &model.LLMMetrics{PromptTPS: 1, PredictedTPS: 2, KVCacheUsage: -1},
 		},
 	}
 }

@@ -8,7 +8,7 @@
 # To survive logout/reboot without an active session, enable lingering once:
 #   loginctl enable-linger $USER
 #
-# Token/endpoint overrides belong in ~/.config/llmtop/config.toml on this
+# Listen, token, and endpoint settings belong in ~/.config/llmtop/config.toml on this
 # host, not here.
 
 [Unit]
@@ -16,7 +16,7 @@ Description=llmtop GPU/LLM telemetry agent
 After=network-online.target
 
 [Service]
-ExecStart=%h/.local/bin/llmtop agent --listen :9832
+ExecStart=%h/.local/bin/llmtop agent
 Restart=on-failure
 RestartSec=2
 

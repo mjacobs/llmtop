@@ -26,50 +26,43 @@ func TestSolveLayoutColumns(t *testing.T) {
 
 func TestSolveLayoutTiersSingleColumn(t *testing.T) {
 	hrs := solveFixture()
-	// cols=1: rows = alpha 2 + bravo 1 = 3.
-	// alpha GPU0's server has Metrics != nil → serverBlockLineCount 3 (was
-	// 2), so its FULL fixed is 3+3+4(procs) = 10 (was 9). GPU1's server is
-	// metrics-off (still 2) → FULL fixed stays 3+2+4 = 9.
-	// FULL fixed = strips 12 + rows (2+10)+(2+9)+(2+3) = 12+28 = 40.
-	// H = (B-40)/(2*3).
-	lay := solveLayout(hrs, 100, 63) // H = 23/6 = 3
+	// cols=1: three panel rows. FULL fixed content is:
+	// strips 12 + GPU rows (2+13)+(2+12)+(2+6) = 49.
+	// At B=69, H=(69-49)/(2*3)=3.
+	lay := solveLayout(hrs, 100, 69)
 	if lay.tier != tierFull || lay.chartH != 3 {
-		t.Errorf("B=63: tier=%v chartH=%d, want FULL/3", lay.tier, lay.chartH)
+		t.Errorf("B=69: tier=%v chartH=%d, want FULL/3", lay.tier, lay.chartH)
 	}
-	// Huge B: H caps at chartCapCells.
+
 	lay = solveLayout(hrs, 100, 300)
 	if lay.tier != tierFull || lay.chartH != chartCapCells {
 		t.Errorf("B=300: tier=%v chartH=%d, want FULL/%d", lay.tier, lay.chartH, chartCapCells)
 	}
-	// B=45: FULL gives H=0 < floor → CHARTS.
-	// CHARTS fixed: GPU0 = 3+3(serverblock, no procs at CHARTS tier) = 6
-	// (was 5); GPU1 stays 3+2 = 5.
-	// CHARTS fixed = 12 + (2+6)+(2+5)+(2+3) = 12+20 = 32; H = 13/6 = 2.
-	lay = solveLayout(hrs, 100, 45)
+
+	// FULL cannot reach the 2-cell floor at B=55. CHARTS fixed content is
+	// strips 12 + GPU rows (2+8)+(2+7)+(2+5) = 38, so H=17/6=2.
+	lay = solveLayout(hrs, 100, 55)
 	if lay.tier != tierCharts || lay.chartH != 2 {
-		t.Errorf("B=45: tier=%v chartH=%d, want CHARTS/2", lay.tier, lay.chartH)
+		t.Errorf("B=55: tier=%v chartH=%d, want CHARTS/2", lay.tier, lay.chartH)
 	}
-	// B=20: even CHARTS can't reach floor → COMPACT.
-	if lay := solveLayout(hrs, 100, 20); lay.tier != tierCompact {
-		t.Errorf("B=20: tier=%v, want COMPACT", lay.tier)
+
+	if lay := solveLayout(hrs, 100, 45); lay.tier != tierCompact {
+		t.Errorf("B=45: tier=%v, want COMPACT", lay.tier)
 	}
 }
 
 func TestSolveLayoutTwoColumnRowMath(t *testing.T) {
 	hrs := solveFixture()
-	// cols=2: alpha's two panels share ONE row → rows = 1 + 1 = 2.
-	// GPU0's fixed is now 10 (metrics-bearing server's 3-line block), so
-	// the row max is max(10,9) = 10, not the old 9/9 tie.
-	// FULL fixed = strips 12 + (2+max(10,9))+(2+3) = 12+17 = 29.
-	// H = (B-29)/(2*2); B=40 → 11/4 = 2.
-	lay := solveLayout(hrs, 140, 40)
+	// cols=2: alpha shares one row and bravo uses one row. FULL fixed
+	// content is strips 12 + (2+max(13,12)) + (2+6) = 35.
+	// At B=43, H=(43-35)/(2*2)=2.
+	lay := solveLayout(hrs, 140, 43)
 	if lay.tier != tierFull || lay.chartH != 2 {
-		t.Errorf("cols=2 B=40: tier=%v chartH=%d, want FULL/2", lay.tier, lay.chartH)
+		t.Errorf("cols=2 B=43: tier=%v chartH=%d, want FULL/2", lay.tier, lay.chartH)
 	}
-	// Same B in one column would NOT fit FULL (needs 40+6H) — the row
-	// sharing is what buys the space.
-	if lay := solveLayout(hrs, 100, 40); lay.tier == tierFull {
-		t.Error("cols=1 B=40 must not be FULL")
+
+	if lay := solveLayout(hrs, 100, 43); lay.tier == tierFull {
+		t.Error("cols=1 B=43 must not be FULL")
 	}
 }
 

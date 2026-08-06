@@ -1,6 +1,7 @@
 /llmtop
 *.test
 .superpowers/
+.worktrees/
 # roborev snapshots
 /.roborev/
 .kata.local.toml

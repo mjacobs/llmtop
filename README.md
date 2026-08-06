@@ -52,7 +52,9 @@ make deploy-agent  DEPLOY_HOST=remote-host   # later updates: rebuild, push, res
 
 The unit file lives at `contrib/llmtop-agent.service`; run
 `loginctl enable-linger $USER` once on the remote box if the service should
-run without an active login session.
+run without an active login session. The unit does not override agent flags,
+so its listen address and optional token come from the remote host's
+`~/.config/llmtop/config.toml` (or the built-in defaults when absent).
 
 `--connect` only works against agents running **without** a token — the TUI
 has no `--token` flag. To reach an agent that requires one, declare the host

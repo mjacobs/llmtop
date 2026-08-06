@@ -84,8 +84,8 @@ install-agent: build ## One-time agent bootstrap on DEPLOY_HOST (binary + unit, 
 	scp $(BINARY) $(DEPLOY_HOST):.local/bin/$(BINARY).new
 	scp $(AGENT_UNIT) $(DEPLOY_HOST):.config/systemd/user/
 	ssh $(DEPLOY_HOST) 'mv ~/.local/bin/$(BINARY).new ~/.local/bin/$(BINARY) \
-		&& pkill -f "[l]lmtop agent" 2>/dev/null; \
-		systemctl --user daemon-reload \
+		&& { pkill -f "[l]lmtop agent" 2>/dev/null || true; } \
+		&& systemctl --user daemon-reload \
 		&& systemctl --user enable --now llmtop-agent'
 
 .PHONY: deploy-agent

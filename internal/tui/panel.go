@@ -86,6 +86,20 @@ func renderGraph(total, llm []float64, chartW, chartH int, base, accent lipgloss
 	return b.String()
 }
 
+// sectionRule renders a dim labeled rule that fills exactly width visual
+// columns. Narrow output is clipped with the same ANSI-aware helper as the
+// rest of the panel.
+func sectionRule(label string, width int, th Theme) string {
+	if width <= 0 {
+		return ""
+	}
+	line := "── " + label + " "
+	if remaining := width - lipgloss.Width(line); remaining > 0 {
+		line += strings.Repeat("─", remaining)
+	}
+	return truncateLine(th.Dim.Render(line), width)
+}
+
 // utilLabel renders the util-chart label: `GPU0 NVIDIA RTX 4090 — util 72% (llm 65%)`.
 func utilLabel(gpu model.GPU, th Theme) string {
 	return fmt.Sprintf("GPU%d %s — ", gpu.Index, gpu.Name) +
@@ -141,8 +155,8 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 }
 
 // serverBlockLines renders one server's block: identity line, detail line,
-// and — only when srv.Metrics != nil — a third gen-t/s sparkline line drawn
-// from h.GenTPSHist[srv.Endpoint] (empty/absent history still renders a
+// and — only for a non-router with Metrics — a third gen-t/s sparkline line
+// drawn from h.GenTPSHist[srv.Endpoint] (empty/absent history still renders a
 // blank sparkline so the line count stays deterministic). Used by both
 // renderGPUPanel and renderHostStrip so the two rendering sites can't drift.
 //
@@ -155,7 +169,7 @@ func serverBlockLines(h *HostState, srv *model.LLMServer, th Theme, width int) [
 		truncateLine(serverLine1(srv, th), width),
 		truncateLine(serverLine2(srv, th), width),
 	}
-	if srv.Metrics == nil {
+	if srv.Role == "router" || srv.Metrics == nil {
 		return lines
 	}
 	var series []float64
@@ -178,12 +192,12 @@ func serverBlockLines(h *HostState, srv *model.LLMServer, th Theme, width int) [
 }
 
 // serverBlockLineCount is the line count serverBlockLines produces for srv:
-// 3 when srv.Metrics != nil (identity + detail + sparkline), else 2. The
-// solver (hostStripContentLines, panelFixedContentLines) uses this instead
-// of rendering, so it must always agree with serverBlockLines's actual
-// output length.
+// 3 for a non-router with Metrics (identity + detail + sparkline), else 2.
+// The solver (hostStripContentLines, panelFixedContentLines) uses this
+// instead of rendering, so it must always agree with serverBlockLines's
+// actual output length.
 func serverBlockLineCount(srv *model.LLMServer) int {
-	if srv.Metrics != nil {
+	if srv.Role != "router" && srv.Metrics != nil {
 		return 3
 	}
 	return 2
@@ -263,12 +277,13 @@ func panelProcRow(p model.GPUProc, th Theme) string {
 }
 
 // renderGPUPanel renders one bordered per-GPU detail panel: title
-// (index, name, temp, power), util label+chart, mem label+chart, the
-// server blocks mapped to this GPU, and (showProcs) its process table,
-// which absorbs the remaining contentH budget. The panel is exactly
-// contentH+2 terminal rows tall so grid rows stay rectangular; overflow
-// is clipped defensively. Caller guarantees hr.h.Snap != nil and a valid
-// gpuIdx.
+// (index, name, temp, power), USAGE HISTORY rule, util label+chart, mem
+// label+chart, LLM SERVERS rule, the server blocks mapped to this GPU, and
+// (showProcs) the GPU PROCESSES rule plus its process table, which absorbs the
+// remaining contentH budget. The process rule follows showProcs just like the
+// table. The panel is exactly contentH+2 terminal rows tall so grid rows stay
+// rectangular; overflow is clipped defensively. Caller guarantees hr.h.Snap != nil
+// and a valid gpuIdx.
 func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProcs, active bool, th Theme) string {
 	inner := width - 4 // border (1) + padding (1) each side
 	if inner < 1 {
@@ -285,6 +300,7 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 		th.Warm.Render(fmt.Sprintf(" %d°", gpu.TempC)) +
 		th.Power.Render(fmt.Sprintf(" %dW", gpu.PowerW))
 	lines = append(lines, truncateLine(title, inner))
+	lines = append(lines, sectionRule("USAGE HISTORY", inner, th))
 
 	lines = append(lines, truncateLine(utilLabel(gpu, th), inner))
 	utilChart := renderGraph(
@@ -297,12 +313,14 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 		ringSlice(h.MemHist, gpu.Index), ringSlice(h.LLMMemHist, gpu.Index),
 		inner, chartH, th.Mem, th.LLM)
 	lines = append(lines, strings.Split(memChart, "\n")...)
+	lines = append(lines, sectionRule("LLM SERVERS", inner, th))
 
 	for _, srv := range hr.byGPU[gpu.Index] {
 		lines = append(lines, serverBlockLines(h, srv, th, inner)...)
 	}
 
 	if showProcs {
+		lines = append(lines, sectionRule("GPU PROCESSES", inner, th))
 		lines = append(lines, panelProcLines(h.Snap.Procs, gpu.Index, th, inner, contentH-len(lines))...)
 	}
 	if len(lines) > contentH {

@@ -105,12 +105,16 @@ func rowMaxFixed(hr hostRender, row, cols int, t tier) int {
 	return maxFixed
 }
 
-// panelFixedContentLines counts a panel's content lines excluding chart
-// rows: title + two chart labels + two per mapped server, plus FULL's
-// minimum process-table allocation when the GPU has processes.
+// panelFixedContentLines counts a panel's content lines excluding chart rows:
+// title, usage/server rules, two chart labels, mapped server blocks, FULL's
+// process rule, and FULL's minimum process-table allocation when processes
+// exist.
 func panelFixedContentLines(hr hostRender, gpuIdx int, t tier) int {
 	gpu := hr.h.Snap.GPUs[gpuIdx]
-	n := 3
+	n := 5 // title + usage/server rules + two chart labels
+	if t == tierFull {
+		n++ // process rule renders even when the process list is empty
+	}
 	for _, srv := range hr.byGPU[gpu.Index] {
 		n += serverBlockLineCount(srv)
 	}
