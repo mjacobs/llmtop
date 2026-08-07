@@ -44,7 +44,9 @@ llmtop --connect remote-host:9832
 ```
 
 To run the agent permanently as a systemd user service, install `llmtop` on
-that host and install the included unit:
+that host and install the included unit. If you installed to a custom
+`XDG_BIN_HOME`, change `ExecStart` in the copied unit to that absolute path
+before enabling it:
 
 ```bash
 mkdir -p ~/.config/systemd/user

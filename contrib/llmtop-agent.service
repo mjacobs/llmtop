@@ -2,6 +2,7 @@
 #
 # Install after `make install` has placed llmtop in ~/.local/bin:
 #   cp llmtop-agent.service ~/.config/systemd/user/
+#   # If XDG_BIN_HOME was customized, update ExecStart below to that path.
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now llmtop-agent
 #

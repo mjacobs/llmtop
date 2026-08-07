@@ -22,8 +22,7 @@ const (
 // actually changes; while a request is in flight and the predicted
 // counter is frozen, PredictedTPS is instead a live estimate derived from
 // the decode counter (which ticks continuously) and a learned
-// tokens-per-decode ratio. See docs/superpowers/specs/2026-07-17-llmtop-live-gen-rates-design.md
-// sections A and B for the full semantics.
+// tokens-per-decode ratio.
 type RateTracker struct {
 	mu    sync.Mutex
 	state map[string]*endpointState

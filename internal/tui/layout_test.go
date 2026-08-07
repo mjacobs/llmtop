@@ -75,6 +75,26 @@ func TestSolveLayoutNoGPUs(t *testing.T) {
 	}
 }
 
+func TestPanelFixedContentLinesSectionRulesByTier(t *testing.T) {
+	hr := solveFixture()[1] // one GPU, no mapped servers or processes
+
+	for _, tc := range []struct {
+		name string
+		tier tier
+		want int
+	}{
+		{name: "full", tier: tierFull, want: 6},
+		{name: "charts", tier: tierCharts, want: 5},
+		{name: "compact", tier: tierCompact, want: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := panelFixedContentLines(hr, 0, tc.tier); got != tc.want {
+				t.Fatalf("fixed content lines = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGPUHasProcs(t *testing.T) {
 	procs := []model.GPUProc{{PID: 1, GPUIndex: 1}}
 	if gpuHasProcs(procs, 0) {
