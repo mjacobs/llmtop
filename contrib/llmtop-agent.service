@@ -1,6 +1,6 @@
 # llmtop agent — systemd user unit.
 #
-# Install (or use `make install-agent` from the repo, which does all this):
+# Install after `make install` has placed llmtop in ~/.local/bin:
 #   cp llmtop-agent.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now llmtop-agent

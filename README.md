@@ -11,16 +11,19 @@ else (compositor, browsers, other compute).
 
 ## Install / build
 
-Requires Go 1.26+ and a C toolchain (cgo is used for the NVML bindings):
+Requires Go 1.26+ and a C toolchain (cgo is used for the NVML bindings).
+Build and install the binary for the current user with:
 
 ```bash
-CGO_ENABLED=1 go build ./cmd/llmtop
+make install
 ```
 
-This produces a single `llmtop` binary. An NVIDIA driver (`libnvidia-ml.so`)
-is only required at **runtime**, not at build time — the binary builds fine
-on a machine with no GPU, and gracefully reports "no NVML" on one without a
-driver.
+This installs to `${XDG_BIN_HOME:-$HOME/.local/bin}/llmtop`; set
+`XDG_BIN_HOME` to override the destination. `make build` produces the binary
+in the repository without installing it. An NVIDIA driver
+(`libnvidia-ml.so`) is only required at **runtime**, not at build time — the
+binary builds fine on a machine with no GPU, and gracefully reports "no
+NVML" on one without a driver.
 
 ## Quick start
 
@@ -40,20 +43,19 @@ llmtop agent --listen :9832
 llmtop --connect remote-host:9832
 ```
 
-To install the agent permanently as a systemd user service (survives
-logout/reboot when lingering is enabled), use the repo's deploy targets —
-they build locally and push over ssh, so the remote box needs no Go toolchain
-(build-host glibc must be ≤ the agent host's, since cgo links libc):
+To run the agent permanently as a systemd user service, install `llmtop` on
+that host and install the included unit:
 
 ```bash
-make install-agent DEPLOY_HOST=remote-host   # one-time: binary + unit, enable --now
-make deploy-agent  DEPLOY_HOST=remote-host   # later updates: rebuild, push, restart
+mkdir -p ~/.config/systemd/user
+cp contrib/llmtop-agent.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now llmtop-agent
 ```
 
-The unit file lives at `contrib/llmtop-agent.service`; run
-`loginctl enable-linger $USER` once on the remote box if the service should
-run without an active login session. The unit does not override agent flags,
-so its listen address and optional token come from the remote host's
+Run `loginctl enable-linger $USER` once if the service should survive logout
+and run without an active login session. The unit does not override agent
+flags, so its listen address and optional token come from that host's
 `~/.config/llmtop/config.toml` (or the built-in defaults when absent).
 
 `--connect` only works against agents running **without** a token — the TUI
