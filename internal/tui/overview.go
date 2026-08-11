@@ -221,6 +221,8 @@ func serverLine(srv *model.LLMServer, th Theme, width int) string {
 	switch {
 	case srv.Role == "router":
 		line += " " + th.Dim.Render("router")
+	case srv.Status == model.StatusSleeping:
+		line += " " + th.Dim.Render("sleeping")
 	case srv.Metrics != nil:
 		stats := fmt.Sprintf(" gen %.1f t/s", srv.Metrics.PredictedTPS)
 		if srv.Metrics.KVCacheUsage >= 0 {

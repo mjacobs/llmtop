@@ -50,6 +50,10 @@ const (
 	StatusOK          = "ok"
 	StatusLoading     = "loading"
 	StatusUnreachable = "unreachable"
+	// StatusSleeping: the server process is alive but its model is unloaded
+	// (llama.cpp --sleep-idle-seconds); VRAM is released until the next
+	// inference request wakes it.
+	StatusSleeping = "sleeping"
 )
 
 type LLMServer struct {

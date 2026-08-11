@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,7 +55,7 @@ func TestFetchWorkerWithMetrics(t *testing.T) {
 	base := time.Unix(2000, 0)
 	a.Now = func() time.Time { return base }
 
-	s := a.Fetch(context.Background(), srv.URL)
+	s := a.Fetch(context.Background(), srv.URL, FetchHint{})
 	if s.Kind != "llama.cpp" || s.Status != model.StatusOK {
 		t.Fatalf("kind/status = %q/%q", s.Kind, s.Status)
 	}
@@ -81,7 +82,7 @@ func TestFetchWorkerWithMetrics(t *testing.T) {
 	// Second sample 2s later with +200/+100 tokens → instantaneous rates.
 	body = metricsBody(16321, 247295) // update via the shared pointer
 	a.Now = func() time.Time { return base.Add(2 * time.Second) }
-	s2 := a.Fetch(context.Background(), srv.URL)
+	s2 := a.Fetch(context.Background(), srv.URL, FetchHint{})
 	if s2.Metrics.PromptTPS != 100 || s2.Metrics.PredictedTPS != 50 {
 		t.Fatalf("delta TPS = %v/%v, want 100/50", s2.Metrics.PromptTPS, s2.Metrics.PredictedTPS)
 	}
@@ -108,7 +109,7 @@ func TestFetchLiveEstimateThenMeasured(t *testing.T) {
 	a.Now = func() time.Time { return base }
 
 	// Poll 1: primes the tracker (first-sample fallback).
-	s1 := a.Fetch(context.Background(), srv.URL)
+	s1 := a.Fetch(context.Background(), srv.URL, FetchHint{})
 	if s1.Metrics == nil {
 		t.Fatal("poll 1: Metrics must be present")
 	}
@@ -123,7 +124,7 @@ func TestFetchLiveEstimateThenMeasured(t *testing.T) {
 		"llamacpp:requests_processing 1\n" +
 		"llamacpp:requests_deferred 0\n"
 	a.Now = func() time.Time { return base.Add(1 * time.Second) }
-	s2 := a.Fetch(context.Background(), srv.URL)
+	s2 := a.Fetch(context.Background(), srv.URL, FetchHint{})
 	if s2.Metrics == nil {
 		t.Fatal("poll 2: Metrics must be present")
 	}
@@ -145,7 +146,7 @@ func TestFetchLiveEstimateThenMeasured(t *testing.T) {
 		"llamacpp:requests_processing 1\n" +
 		"llamacpp:requests_deferred 0\n"
 	a.Now = func() time.Time { return base.Add(2 * time.Second) }
-	s3 := a.Fetch(context.Background(), srv.URL)
+	s3 := a.Fetch(context.Background(), srv.URL, FetchHint{})
 	if s3.Metrics == nil {
 		t.Fatal("poll 3: Metrics must be present")
 	}
@@ -159,7 +160,7 @@ func TestFetchLiveEstimateThenMeasured(t *testing.T) {
 
 func TestFetchNoMetrics501(t *testing.T) {
 	srv := newFakeServer(t, workerProps, 501, nil)
-	s := NewLlamaCpp().Fetch(context.Background(), srv.URL)
+	s := NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{})
 	if s.Status != model.StatusOK || s.Metrics != nil {
 		t.Fatalf("want ok + nil Metrics, got %q %v", s.Status, s.Metrics)
 	}
@@ -167,7 +168,7 @@ func TestFetchNoMetrics501(t *testing.T) {
 
 func TestFetchRouter(t *testing.T) {
 	srv := newFakeServer(t, routerProps, 400, nil)
-	s := NewLlamaCpp().Fetch(context.Background(), srv.URL)
+	s := NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{})
 	if s.Role != "router" || s.Model != "" {
 		t.Fatalf("router: role=%q model=%q, want router/empty", s.Role, s.Model)
 	}
@@ -181,7 +182,7 @@ func TestFetchLoading(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	s := NewLlamaCpp().Fetch(context.Background(), srv.URL)
+	s := NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{})
 	if s.Status != model.StatusLoading {
 		t.Fatalf("status = %q, want loading", s.Status)
 	}
@@ -190,7 +191,7 @@ func TestFetchLoading(t *testing.T) {
 func TestFetchUnreachable(t *testing.T) {
 	srv := httptest.NewServer(http.NewServeMux())
 	srv.Close() // dead endpoint
-	s := NewLlamaCpp().Fetch(context.Background(), srv.URL)
+	s := NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{})
 	if s.Status != model.StatusUnreachable {
 		t.Fatalf("status = %q, want unreachable", s.Status)
 	}
@@ -203,5 +204,168 @@ func TestDetectDelegatesToCmdlineParser(t *testing.T) {
 	}
 	if _, ok := a.Detect([]string{"chrome"}); ok {
 		t.Fatal("chrome must not detect")
+	}
+}
+
+// --- sleep-idle awareness ---------------------------------------------------
+//
+// llama.cpp counts any /metrics scrape as activity: it resets the
+// --sleep-idle-seconds timer and wakes a sleeping server. These tests pin the
+// adapter's counter-measures: report sleeping state from /props (never
+// touching /metrics), and stop polling /metrics on sleep-idle-enabled servers
+// once they go quiet, resuming on GPU activity or a wake transition.
+
+const idleMetrics = "llamacpp:prompt_tokens_total 1000\n" +
+	"llamacpp:tokens_predicted_total 5000\n" +
+	"llamacpp:n_decode_total 100\n" +
+	"llamacpp:prompt_tokens_seconds 10\n" +
+	"llamacpp:predicted_tokens_seconds 10\n" +
+	"llamacpp:requests_processing 0\n" +
+	"llamacpp:requests_deferred 0\n"
+
+// switchableServer serves mutable props/metrics and counts /metrics hits.
+func switchableServer(t *testing.T, props *string, metrics *string, hits *int) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(*props))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		*hits++
+		_, _ = w.Write([]byte(*metrics))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// registerSleepIdle tells the adapter (via Detect, as the process scanner
+// would) that the server at srv.URL runs with --sleep-idle-seconds.
+func registerSleepIdle(t *testing.T, a *LlamaCpp, srv *httptest.Server) {
+	t.Helper()
+	hostport := strings.TrimPrefix(srv.URL, "http://")
+	host, port, ok := strings.Cut(hostport, ":")
+	if !ok {
+		t.Fatalf("unexpected test server URL %q", srv.URL)
+	}
+	ep, ok := a.Detect([]string{"llama-server", "--host", host, "--port", port, "--sleep-idle-seconds", "1800"})
+	if !ok || ep != srv.URL {
+		t.Fatalf("Detect = %q %v, want %q", ep, ok, srv.URL)
+	}
+}
+
+func TestFetchSleepingServerSkipsMetrics(t *testing.T) {
+	props := `{"model_alias":"demo-model","model_path":"/m/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
+	metrics, hits := idleMetrics, 0
+	srv := switchableServer(t, &props, &metrics, &hits)
+
+	s := NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{})
+	if s.Status != model.StatusSleeping {
+		t.Fatalf("status = %q, want %q", s.Status, model.StatusSleeping)
+	}
+	if s.Model != "demo-model" {
+		t.Fatalf("model = %q, want demo-model (props still mapped)", s.Model)
+	}
+	if s.Metrics != nil {
+		t.Fatalf("Metrics = %+v, want nil while sleeping", s.Metrics)
+	}
+	if hits != 0 {
+		t.Fatalf("/metrics hit %d times; polling a sleeping server wakes it", hits)
+	}
+}
+
+func TestSleepIdleGateStopsPollingWhenIdle(t *testing.T) {
+	props := workerProps
+	metrics, hits := idleMetrics, 0
+	srv := switchableServer(t, &props, &metrics, &hits)
+
+	a := NewLlamaCpp()
+	base := time.Unix(5000, 0)
+	registerSleepIdle(t, a, srv)
+
+	var last model.LLMServer
+	for i := 0; i < 6; i++ {
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		last = a.Fetch(context.Background(), srv.URL, FetchHint{})
+	}
+	if hits != metricsIdleGraceTicks {
+		t.Fatalf("/metrics hit %d times over 6 idle polls, want %d (grace) then gated", hits, metricsIdleGraceTicks)
+	}
+	if last.Status != model.StatusOK {
+		t.Fatalf("status = %q, want ok (awake, just not polled)", last.Status)
+	}
+	if last.Metrics == nil {
+		t.Fatal("Metrics must be retained (cached) while gated")
+	}
+	if last.Metrics.PromptTPS != 0 || last.Metrics.PredictedTPS != 0 {
+		t.Fatalf("gated rates = %v/%v, want 0/0", last.Metrics.PromptTPS, last.Metrics.PredictedTPS)
+	}
+}
+
+func TestSleepIdleGateResumesOnGPUActivity(t *testing.T) {
+	props := workerProps
+	metrics, hits := idleMetrics, 0
+	srv := switchableServer(t, &props, &metrics, &hits)
+
+	a := NewLlamaCpp()
+	base := time.Unix(6000, 0)
+	registerSleepIdle(t, a, srv)
+
+	for i := 0; i < 6; i++ { // drain the grace period
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		a.Fetch(context.Background(), srv.URL, FetchHint{})
+	}
+	gated := hits
+
+	a.Now = func() time.Time { return base.Add(20 * time.Second) }
+	s := a.Fetch(context.Background(), srv.URL, FetchHint{GPUActive: true})
+	if hits != gated+1 {
+		t.Fatalf("/metrics hits = %d after GPU-active hint, want %d", hits, gated+1)
+	}
+	if s.Metrics == nil {
+		t.Fatal("Metrics must be fresh after resumed poll")
+	}
+}
+
+func TestSleepIdleGateResumesAfterWakeTransition(t *testing.T) {
+	props := `{"model_alias":"demo-model","model_path":"/m/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
+	metrics, hits := idleMetrics, 0
+	srv := switchableServer(t, &props, &metrics, &hits)
+
+	a := NewLlamaCpp()
+	base := time.Unix(7000, 0)
+	a.Now = func() time.Time { return base }
+	registerSleepIdle(t, a, srv)
+
+	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Status != model.StatusSleeping || hits != 0 {
+		t.Fatalf("sleeping poll: status=%q hits=%d", s.Status, hits)
+	}
+
+	// Some other client woke it: is_sleeping flips false. The adapter must
+	// resume /metrics polling even with no GPU hint yet.
+	props = workerProps
+	a.Now = func() time.Time { return base.Add(2 * time.Second) }
+	s := a.Fetch(context.Background(), srv.URL, FetchHint{})
+	if s.Status != model.StatusOK || hits != 1 {
+		t.Fatalf("woken poll: status=%q hits=%d, want ok/1", s.Status, hits)
+	}
+}
+
+func TestNoGateWithoutSleepIdleFlag(t *testing.T) {
+	props := workerProps
+	metrics, hits := idleMetrics, 0
+	srv := switchableServer(t, &props, &metrics, &hits)
+
+	a := NewLlamaCpp()
+	base := time.Unix(8000, 0)
+	for i := 0; i < 6; i++ {
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		a.Fetch(context.Background(), srv.URL, FetchHint{})
+	}
+	if hits != 6 {
+		t.Fatalf("/metrics hit %d times, want 6 (no sleep-idle -> no gating)", hits)
 	}
 }

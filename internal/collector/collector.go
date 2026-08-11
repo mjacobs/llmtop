@@ -64,6 +64,15 @@ func (c *Collector) Collect(ctx context.Context) model.Snapshot {
 		table = nil
 	}
 
+	// Per-PID GPU activity from this tick's sample, fed to adapters as a
+	// poll hint (see llm.FetchHint).
+	activePIDs := map[int32]bool{}
+	for _, p := range gpuProcs {
+		if p.SMUtilPct > 0 {
+			activePIDs[p.PID] = true
+		}
+	}
+
 	discovered := llm.Discover(table, c.adapters, c.static)
 	s.Servers = make([]model.LLMServer, len(discovered))
 	var wg sync.WaitGroup
@@ -73,7 +82,7 @@ func (c *Collector) Collect(ctx context.Context) model.Snapshot {
 			defer wg.Done()
 			fctx, cancel := context.WithTimeout(ctx, llmFetchTimeout)
 			defer cancel()
-			srv := d.Adapter.Fetch(fctx, d.Endpoint)
+			srv := d.Adapter.Fetch(fctx, d.Endpoint, llm.FetchHint{GPUActive: activePIDs[d.PID]})
 			srv.PID = d.PID
 			s.Servers[i] = srv
 		}(i, d)

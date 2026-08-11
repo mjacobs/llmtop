@@ -130,6 +130,8 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 	switch {
 	case srv.Role == "router":
 		return "  " + th.Dim.Render("router — spawns model instances on demand")
+	case srv.Status == model.StatusSleeping:
+		return "  " + th.Dim.Render("sleeping — model unloaded until next request")
 	case srv.Metrics != nil:
 		m := srv.Metrics
 		gen := fmt.Sprintf("gen %.1f t/s", m.PredictedTPS)

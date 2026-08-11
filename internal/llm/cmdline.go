@@ -4,6 +4,7 @@ package llm
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -41,4 +42,24 @@ func EndpointFromCmdline(argv []string) (string, bool) {
 		host = "127.0.0.1"
 	}
 	return fmt.Sprintf("http://%s:%s", host, port), true
+}
+
+// sleepIdleFromCmdline reports whether argv enables llama-server's idle sleep
+// (--sleep-idle-seconds with a positive value; -1/absent = disabled).
+func sleepIdleFromCmdline(argv []string) bool {
+	for i := 1; i < len(argv); i++ {
+		arg := argv[i]
+		var val string
+		switch {
+		case strings.HasPrefix(arg, "--sleep-idle-seconds="):
+			val = arg[len("--sleep-idle-seconds="):]
+		case arg == "--sleep-idle-seconds" && i+1 < len(argv):
+			val = argv[i+1]
+		default:
+			continue
+		}
+		secs, err := strconv.Atoi(val)
+		return err == nil && secs > 0
+	}
+	return false
 }

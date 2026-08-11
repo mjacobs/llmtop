@@ -408,3 +408,15 @@ func TestHostStripContentLinesMatchesRender(t *testing.T) {
 		}
 	}
 }
+
+func TestServerLine2Sleeping(t *testing.T) {
+	th := DefaultTheme()
+	srv := &model.LLMServer{Kind: "llama.cpp", Model: "demo-model", Status: model.StatusSleeping}
+	got := serverLine2(srv, th)
+	if !strings.Contains(got, "sleeping") {
+		t.Fatalf("serverLine2 = %q, want sleeping notice", got)
+	}
+	if strings.Contains(got, "metrics disabled") {
+		t.Fatalf("serverLine2 = %q, must not claim metrics disabled while sleeping", got)
+	}
+}

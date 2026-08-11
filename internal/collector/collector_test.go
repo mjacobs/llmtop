@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/mjacobs/llmtop/internal/gpu"
@@ -150,4 +151,52 @@ func (failingVendor) Shutdown()                      {}
 func (failingVendor) DriverVersion() (string, error) { return "x", nil }
 func (failingVendor) Sample() ([]gpu.DeviceSample, []gpu.ProcSample, error) {
 	return nil, nil, context.DeadlineExceeded
+}
+
+// hintAdapter records the FetchHint per endpoint to pin the collector's
+// GPU-activity plumbing (SMUtilPct > 0 for the server's PID => GPUActive).
+type hintAdapter struct {
+	mu    sync.Mutex
+	hints map[string]llm.FetchHint
+}
+
+func (h *hintAdapter) Kind() string { return "fake" }
+func (h *hintAdapter) Detect(cmdline []string) (string, bool) {
+	if len(cmdline) == 2 && cmdline[0] == "fake-server" {
+		return "http://127.0.0.1:" + cmdline[1], true
+	}
+	return "", false
+}
+func (h *hintAdapter) Fetch(ctx context.Context, endpoint string, hint llm.FetchHint) model.LLMServer {
+	h.mu.Lock()
+	h.hints[endpoint] = hint
+	h.mu.Unlock()
+	return model.LLMServer{Kind: "fake", Endpoint: endpoint, Status: model.StatusOK}
+}
+
+func TestCollectPassesGPUActivityHint(t *testing.T) {
+	vendor := gpu.NewFake(1)
+	vendor.SetProcs([]gpu.ProcSample{
+		{PID: 100, GPUIndex: 0, MemBytes: 8 << 30, SMUtilPct: 60}, // busy
+		{PID: 101, GPUIndex: 0, MemBytes: 8 << 30, SMUtilPct: 0},  // idle
+	})
+	scanner := &procs.Fake{Table: map[int32]procs.ProcInfo{
+		100: {PID: 100, PPID: 1, Comm: "fake-server", Cmdline: []string{"fake-server", "1001"}},
+		101: {PID: 101, PPID: 1, Comm: "fake-server", Cmdline: []string{"fake-server", "1002"}},
+	}}
+	ad := &hintAdapter{hints: map[string]llm.FetchHint{}}
+
+	c := New("h", vendor, scanner, []llm.Adapter{ad}, nil, "test")
+	if err := c.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Collect(context.Background())
+
+	if !ad.hints["http://127.0.0.1:1001"].GPUActive {
+		t.Fatal("busy PID 100: GPUActive hint = false, want true")
+	}
+	if ad.hints["http://127.0.0.1:1002"].GPUActive {
+		t.Fatal("idle PID 101: GPUActive hint = true, want false")
+	}
 }
