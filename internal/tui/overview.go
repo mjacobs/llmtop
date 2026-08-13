@@ -14,17 +14,22 @@ import (
 const sparkWidth = 12
 
 // RenderOverview renders the unified adaptive view: per host a slim strip
-// (title, host-level servers, banners) and a grid of per-GPU detail panels
-// (charts, mapped servers, process table), one or two columns wide. A
-// per-frame solver picks the densest tier that fits the body height,
-// degrading to the legacy compact rows when space is tight. selected is a
-// flat GPU-panel index in render order; the selected panel gets the active
-// border (in COMPACT, its host panel does).
+// (title, host-level servers, banners) and per-GPU detail panels (charts,
+// mapped servers, process table). On a wide terminal every GPU across every
+// host shares one row, each host's strip spanning its own columns; otherwise
+// hosts stack, each wrapping its GPUs into one or two columns. A per-frame
+// solver picks the densest tier that fits the body height, degrading to the
+// legacy compact rows when space is tight. selected is a flat GPU-panel
+// index in render order; the selected panel gets the active border (in
+// COMPACT, its host panel does).
 func RenderOverview(hosts []*HostState, selected int, width, height int, th Theme) string {
 	hrs := buildHostRenders(hosts)
 	lay := solveLayout(hrs, width, height)
 	if lay.tier == tierCompact {
 		return renderCompact(hosts, hostOfPanel(hrs, selected), width, th)
+	}
+	if lay.oneRow {
+		return renderOneRow(hrs, lay, selected, width, height, th)
 	}
 
 	panelW := width
@@ -57,7 +62,7 @@ func RenderOverview(hosts []*HostState, selected int, width, height int, th Them
 		if hi > 0 && gapPerHost > 0 {
 			blocks = append(blocks, strings.Repeat("\n", gapPerHost-1))
 		}
-		blocks = append(blocks, renderHostStrip(hr, width, th))
+		blocks = append(blocks, renderHostStrip(hr, width, 0, th))
 		if hr.h.Snap == nil {
 			continue
 		}
@@ -82,15 +87,57 @@ func RenderOverview(hosts []*HostState, selected int, width, height int, th Them
 	return strings.Join(blocks, "\n")
 }
 
+// renderOneRow renders the wide layout: a row of host strips, each spanning
+// the columns of its own GPUs, above a single row holding every GPU panel.
+// Hosts with no GPU panels (unreachable, or reporting zero GPUs) have no
+// column to sit above, so their strips stack full width underneath. All
+// surplus height goes to the panel row so the frame never ends in a void.
+func renderOneRow(hrs []hostRender, lay gridLayout, selected, width, height int, th Theme) string {
+	selPanel := clampPanel(hrs, selected)
+	contentH := oneRowFixed(hrs, lay.tier) + 2*lay.chartH
+	if leftover := height - oneRowHeight(hrs, lay.tier, lay.chartH); leftover > 0 {
+		contentH += leftover
+	}
+	stripH := stripRowContentLines(hrs)
+
+	var strips, panels, trailing []string
+	panelIdx := 0
+	for _, hr := range hrs {
+		n := hostPanelCount(hr)
+		if n == 0 {
+			trailing = append(trailing, renderHostStrip(hr, width, 0, th))
+			continue
+		}
+		if len(strips) > 0 { // gap between host column groups
+			strips = append(strips, strings.Repeat(" ", panelGap))
+			panels = append(panels, strings.Repeat(" ", panelGap))
+		}
+		stripW := (n - 1) * panelGap
+		for i := panelIdx; i < panelIdx+n; i++ {
+			stripW += lay.widths[i]
+		}
+		strips = append(strips, renderHostStrip(hr, stripW, stripH, th))
+		for i := 0; i < n; i++ {
+			if i > 0 {
+				panels = append(panels, strings.Repeat(" ", panelGap))
+			}
+			panels = append(panels, renderGPUPanel(hr, i, lay.widths[panelIdx+i], contentH,
+				lay.chartH, lay.tier == tierFull, panelIdx+i == selPanel, th))
+		}
+		panelIdx += n
+	}
+
+	blocks := []string{
+		lipgloss.JoinHorizontal(lipgloss.Top, strips...),
+		lipgloss.JoinHorizontal(lipgloss.Top, panels...),
+	}
+	return strings.Join(append(blocks, trailing...), "\n")
+}
+
 // clampPanel clamps a flat panel index into [0, panels-1] (-1 when there
 // are no panels, so nothing matches it).
 func clampPanel(hrs []hostRender, panel int) int {
-	total := 0
-	for _, hr := range hrs {
-		if hr.h.Snap != nil {
-			total += len(hr.h.Snap.GPUs)
-		}
-	}
+	total := totalPanels(hrs)
 	if total == 0 {
 		return -1
 	}

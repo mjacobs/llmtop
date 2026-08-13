@@ -337,11 +337,13 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 		Render(strings.Join(lines, "\n"))
 }
 
-// renderHostStrip renders a host's slim full-width strip: title line,
-// host-level server blocks (servers that could not be mapped to a GPU,
-// e.g. the router), collection errors, and the stale/unreachable banner.
-// Selection never lands here, so it always uses the passive border.
-func renderHostStrip(hr hostRender, width int, th Theme) string {
+// renderHostStrip renders a host's slim strip: title line, host-level
+// server blocks (servers that could not be mapped to a GPU, e.g. the
+// router), collection errors, and the stale/unreachable banner. contentH
+// pads (or clips) the strip to a fixed content height so a row of strips
+// stays rectangular; 0 means "as tall as its content". Selection never
+// lands here, so it always uses the passive border.
+func renderHostStrip(hr hostRender, width, contentH int, th Theme) string {
 	inner := width - 4
 	if inner < 1 {
 		inner = 1
@@ -364,7 +366,14 @@ func renderHostStrip(hr hostRender, width int, th Theme) string {
 		}
 		lines = append(lines, truncateLine(th.Err.Render(prefix+h.ErrMsg), inner))
 	}
-	return th.Border.Width(width-2).Padding(0, 1).Render(strings.Join(lines, "\n"))
+	border := th.Border.Width(width-2).Padding(0, 1)
+	if contentH > 0 {
+		if len(lines) > contentH {
+			lines = lines[:contentH]
+		}
+		border = border.Height(contentH)
+	}
+	return border.Render(strings.Join(lines, "\n"))
 }
 
 // hostStripContentLines counts the content lines renderHostStrip emits —

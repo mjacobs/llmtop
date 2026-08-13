@@ -65,6 +65,54 @@ func TestRenderOverviewTwoColumns(t *testing.T) {
 	}
 }
 
+// TestRenderOverviewOneRow covers the wide layout: every GPU of every host
+// on one line, with each host's strip sitting above its own columns.
+func TestRenderOverviewOneRow(t *testing.T) {
+	hosts := SampleHostStates()
+	out := RenderOverview(hosts, 0, 220, 55, DefaultTheme())
+	lines := strings.Split(out, "\n")
+
+	// alpha's two GPUs and bravo's one all sit on the same panel row.
+	sideBySide := false
+	for _, line := range lines {
+		if strings.Contains(line, "RTX 4090") && strings.Contains(line, "RTX 3090") &&
+			strings.Contains(line, "RTX 4080") {
+			sideBySide = true
+		}
+	}
+	if !sideBySide {
+		t.Errorf("width 220 must put all three GPUs on one row\n%s", out)
+	}
+
+	// Both hosts with GPUs name themselves on the same strip row, above the
+	// panels; the GPU-less host stacks below them.
+	stripRow, panelRow, deadRow := -1, -1, -1
+	for i, line := range lines {
+		if strings.Contains(line, "alpha") && strings.Contains(line, "bravo") {
+			stripRow = i
+		}
+		if strings.Contains(line, "RTX 4090") && strings.Contains(line, "RTX 4080") {
+			panelRow = i
+		}
+		if strings.Contains(line, "unreachable") {
+			deadRow = i
+		}
+	}
+	if stripRow < 0 || panelRow < 0 || deadRow < 0 {
+		t.Fatalf("missing strip/panel/dead-host rows (%d/%d/%d)\n%s", stripRow, panelRow, deadRow, out)
+	}
+	if !(stripRow < panelRow && panelRow < deadRow) {
+		t.Errorf("want strip row above panels above the GPU-less host, got %d/%d/%d\n%s",
+			stripRow, panelRow, deadRow, out)
+	}
+
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > 220 {
+			t.Errorf("line width %d > 220: %q", w, line)
+		}
+	}
+}
+
 func TestRenderOverviewSingleColumn(t *testing.T) {
 	hosts := SampleHostStates()
 	out := RenderOverview(hosts, 0, 100, 63, DefaultTheme())
@@ -77,7 +125,7 @@ func TestRenderOverviewSingleColumn(t *testing.T) {
 
 func TestRenderOverviewFitsHeight(t *testing.T) {
 	hosts := SampleHostStates()
-	for _, size := range [][2]int{{100, 63}, {140, 40}, {100, 45}, {120, 200}} {
+	for _, size := range [][2]int{{100, 63}, {140, 40}, {100, 45}, {120, 200}, {220, 55}, {220, 200}, {400, 30}} {
 		out := RenderOverview(hosts, 0, size[0], size[1], DefaultTheme())
 		if got := len(strings.Split(out, "\n")); got > size[1] {
 			t.Errorf("%dx%d: rendered %d lines > height", size[0], size[1], got)

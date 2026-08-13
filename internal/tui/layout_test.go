@@ -24,6 +24,58 @@ func TestSolveLayoutColumns(t *testing.T) {
 	}
 }
 
+func TestSolveLayoutOneRow(t *testing.T) {
+	hrs := solveFixture()
+	// 3 panels need (width-2)/3 - 4 >= minPanelInner=60 → width >= 194.
+	lay := solveLayout(hrs, 220, 55)
+	if !lay.oneRow {
+		t.Fatalf("width 220: want one-row layout, got %+v", lay)
+	}
+	if got := len(lay.widths); got != 3 {
+		t.Fatalf("one-row widths = %d, want one per panel (3)", got)
+	}
+	// Widths fill the terminal exactly: panels plus the gaps between them.
+	sum := 2 * panelGap
+	for _, w := range lay.widths {
+		sum += w
+	}
+	if sum != 220 {
+		t.Errorf("one-row widths sum to %d, want 220", sum)
+	}
+
+	if lay := solveLayout(hrs, 193, 55); lay.oneRow {
+		t.Error("width 193 is one column too narrow for three panels")
+	}
+	// Too short for CHARTS-tier charts → fall back to the stacked grid.
+	if lay := solveLayout(hrs, 220, 20); lay.oneRow {
+		t.Errorf("height 20 must not use the one-row layout: %+v", lay)
+	}
+}
+
+func TestOneRowHeightAccounting(t *testing.T) {
+	hrs := solveFixture()
+	// Strip row: bravo's 3 content lines are the tallest (alpha's strip
+	// is a lone title line) → 5 rows with the border. Panel row: alpha GPU0's
+	// FULL fixed content is 13 → 13 + 2*chartH + 2. The GPU-less charlie host
+	// stacks its own 2+2 row underneath. At chartH=0: 5 + 15 + 4 = 24.
+	if got := oneRowHeight(hrs, tierFull, 0); got != 24 {
+		t.Errorf("oneRowHeight(FULL, 0) = %d, want 24", got)
+	}
+	if got := oneRowHeight(hrs, tierFull, 4); got != 32 {
+		t.Errorf("oneRowHeight(FULL, 4) = %d, want 32", got)
+	}
+}
+
+func TestSplitWidths(t *testing.T) {
+	// Remainder goes to the leftmost columns: 201 - 2 gaps = 199 = 67+66+66.
+	if got := splitWidths(201, 3); len(got) != 3 || got[0] != 67 || got[1] != 66 || got[2] != 66 {
+		t.Errorf("splitWidths(201, 3) = %v, want [67 66 66]", got)
+	}
+	if got := splitWidths(100, 3); got != nil {
+		t.Errorf("splitWidths(100, 3) = %v, want nil (too narrow)", got)
+	}
+}
+
 func TestSolveLayoutTiersSingleColumn(t *testing.T) {
 	hrs := solveFixture()
 	// cols=1: three panel rows. FULL fixed content is:
