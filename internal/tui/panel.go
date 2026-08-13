@@ -279,8 +279,10 @@ func panelProcRow(p model.GPUProc, th Theme) string {
 }
 
 // renderGPUPanel renders one bordered per-GPU detail panel: title
-// (index, name, temp, power), USAGE HISTORY rule, util label+chart, mem
-// label+chart, LLM SERVERS rule, the server blocks mapped to this GPU, and
+// (index, name, temp, power), USAGE HISTORY rule, util chart, its
+// right-aligned caption, mem chart, its right-aligned caption (each caption
+// sits under the newest samples, at the right edge where the charts draw
+// them), LLM SERVERS rule, the server blocks mapped to this GPU, and
 // (showProcs) the GPU PROCESSES rule plus its process table, which absorbs the
 // remaining contentH budget. The process rule follows showProcs just like the
 // table. The panel is exactly contentH+2 terminal rows tall so grid rows stay
@@ -304,17 +306,17 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 	lines = append(lines, truncateLine(title, inner))
 	lines = append(lines, sectionRule("USAGE HISTORY", inner, th))
 
-	lines = append(lines, truncateLine(utilLabel(gpu, th), inner))
 	utilChart := renderGraph(
 		ringSlice(h.UtilHist, gpu.Index), ringSlice(h.LLMUtilHist, gpu.Index),
 		inner, chartH, th.Util, th.LLM)
 	lines = append(lines, strings.Split(utilChart, "\n")...)
+	lines = append(lines, rightAlign(utilLabel(gpu, th), inner))
 
-	lines = append(lines, truncateLine(memLabel(gpu, th), inner))
 	memChart := renderGraph(
 		ringSlice(h.MemHist, gpu.Index), ringSlice(h.LLMMemHist, gpu.Index),
 		inner, chartH, th.Mem, th.LLM)
 	lines = append(lines, strings.Split(memChart, "\n")...)
+	lines = append(lines, rightAlign(memLabel(gpu, th), inner))
 	lines = append(lines, sectionRule("LLM SERVERS", inner, th))
 
 	for _, srv := range hr.byGPU[gpu.Index] {

@@ -191,6 +191,43 @@ func TestRenderGPUPanelContent(t *testing.T) {
 	}
 }
 
+// TestRenderGPUPanelChartCaptions pins the caption placement: each chart's
+// label sits on the line after its last chart row, flush against the panel's
+// right edge (where the newest samples are drawn).
+func TestRenderGPUPanelChartCaptions(t *testing.T) {
+	const width, chartH = 70, 4
+	hrs := buildHostRenders(SampleHostStates())
+	lines := strings.Split(renderGPUPanel(hrs[0], 0, width, 24, chartH, true, false, DefaultTheme()), "\n")
+
+	rule, util, mem := -1, -1, -1
+	for i, line := range lines {
+		switch {
+		case strings.Contains(line, "USAGE HISTORY"):
+			rule = i
+		case strings.Contains(line, "util 72%"):
+			util = i
+		case strings.Contains(line, "mem 70%"):
+			mem = i
+		}
+	}
+	if rule < 0 || util < 0 || mem < 0 {
+		t.Fatalf("missing rule/util/mem rows (%d/%d/%d):\n%s", rule, util, mem, strings.Join(lines, "\n"))
+	}
+	// Captions follow their charts: rule, chartH rows, util caption, chartH
+	// rows, mem caption.
+	if util != rule+chartH+1 || mem != util+chartH+1 {
+		t.Errorf("captions not below their charts: rule=%d util=%d mem=%d (chartH=%d)",
+			rule, util, mem, chartH)
+	}
+	// Right-aligned: each caption ends at the panel's inner right edge, so
+	// the full bordered line is exactly as wide as the panel.
+	for _, i := range []int{util, mem} {
+		if w := lipgloss.Width(lines[i]); w != width {
+			t.Errorf("caption line %d is %d cols, want %d (right-aligned): %q", i, w, width, lines[i])
+		}
+	}
+}
+
 func TestRenderGPUPanelSectionOrderWhenRegionsAreEmpty(t *testing.T) {
 	h := NewHostState("idle")
 	h.Snap = &model.Snapshot{GPUs: []model.GPU{{

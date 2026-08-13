@@ -214,6 +214,16 @@ func truncateLine(s string, width int) string {
 	return ansi.Truncate(s, width, "")
 }
 
+// rightAlign clips a line to width and pads it to the right edge, so chart
+// captions sit under the newest samples rather than under empty history.
+func rightAlign(s string, width int) string {
+	s = truncateLine(s, width)
+	if pad := width - lipgloss.Width(s); pad > 0 {
+		return strings.Repeat(" ", pad) + s
+	}
+	return s
+}
+
 // titleLine renders the host name plus a dim status suffix as the panel's
 // first content line (lipgloss border-embedded titles are fiddly to align).
 func titleLine(h *HostState, th Theme, width int) string {
