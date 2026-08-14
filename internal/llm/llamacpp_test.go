@@ -354,6 +354,127 @@ func TestSleepIdleGateResumesAfterWakeTransition(t *testing.T) {
 	}
 }
 
+func TestSleepIdleGateAgesOutWhenMetricsDisabled(t *testing.T) {
+	hits := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(workerProps))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(501) // llama.cpp without --metrics
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a := NewLlamaCpp()
+	base := time.Unix(9000, 0)
+	registerSleepIdle(t, a, srv)
+
+	var last model.LLMServer
+	for i := 0; i < 6; i++ {
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		last = a.Fetch(context.Background(), srv.URL, FetchHint{})
+	}
+	if hits != metricsIdleGraceTicks {
+		t.Fatalf("/metrics hit %d times with metrics disabled, want %d (grace) then gated", hits, metricsIdleGraceTicks)
+	}
+	if last.Status != model.StatusOK || last.Metrics != nil {
+		t.Fatalf("gated 501 server: status=%q metrics=%v, want ok/nil", last.Status, last.Metrics)
+	}
+}
+
+func TestPropsFailurePreservesSleepingState(t *testing.T) {
+	sleepingProps := `{"model_alias":"demo-model","model_path":"/m/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
+	props, propsCode := sleepingProps, 200
+	hits := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
+		if propsCode != 200 {
+			w.WriteHeader(propsCode)
+			return
+		}
+		_, _ = w.Write([]byte(props))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(idleMetrics))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a := NewLlamaCpp()
+	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Status != model.StatusSleeping {
+		t.Fatalf("initial poll: status = %q, want sleeping", s.Status)
+	}
+
+	// /props fails: the sleep state is unknown, not "awake". Clearing it
+	// would scrape /metrics and wake the server.
+	propsCode = 500
+	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Status != model.StatusSleeping {
+		t.Fatalf("failed-/props poll: status = %q, want sleeping preserved", s.Status)
+	}
+
+	// Malformed /props body must behave the same way.
+	propsCode, props = 200, `{"truncated`
+	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Status != model.StatusSleeping {
+		t.Fatalf("malformed-/props poll: status = %q, want sleeping preserved", s.Status)
+	}
+	if hits != 0 {
+		t.Fatalf("/metrics hit %d times while sleep state unknown; polling wakes the server", hits)
+	}
+
+	// An explicit is_sleeping=false is still recognized as a wake.
+	props = workerProps
+	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Status != model.StatusOK || hits != 1 {
+		t.Fatalf("woken poll: status=%q hits=%d, want ok/1", s.Status, hits)
+	}
+}
+
+func TestDetectClearsStateWhenSleepIdleRemoved(t *testing.T) {
+	props := workerProps
+	metrics, hits := idleMetrics, 0
+	srv := switchableServer(t, &props, &metrics, &hits)
+
+	a := NewLlamaCpp()
+	base := time.Unix(10000, 0)
+	registerSleepIdle(t, a, srv)
+
+	for i := 0; i < 6; i++ { // drain the grace period; gate closes
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		a.Fetch(context.Background(), srv.URL, FetchHint{})
+	}
+	gated := hits
+	if gated != metricsIdleGraceTicks {
+		t.Fatalf("setup: /metrics hits = %d, want %d", gated, metricsIdleGraceTicks)
+	}
+
+	// The process at this endpoint is replaced by one without
+	// --sleep-idle-seconds; the scanner re-Detects it with the new cmdline.
+	hostport := strings.TrimPrefix(srv.URL, "http://")
+	host, port, ok := strings.Cut(hostport, ":")
+	if !ok {
+		t.Fatalf("unexpected test server URL %q", srv.URL)
+	}
+	if ep, ok := a.Detect([]string{"llama-server", "--host", host, "--port", port}); !ok || ep != srv.URL {
+		t.Fatalf("Detect = %q %v, want %q", ep, ok, srv.URL)
+	}
+
+	for i := 6; i < 12; i++ {
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		a.Fetch(context.Background(), srv.URL, FetchHint{})
+	}
+	if hits != gated+6 {
+		t.Fatalf("/metrics hits = %d after sleep-idle removed, want %d (unconditional polling)", hits, gated+6)
+	}
+}
+
 func TestNoGateWithoutSleepIdleFlag(t *testing.T) {
 	props := workerProps
 	metrics, hits := idleMetrics, 0

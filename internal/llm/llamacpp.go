@@ -54,15 +54,24 @@ func (a *LlamaCpp) Kind() string { return llamaKind }
 
 func (a *LlamaCpp) Detect(cmdline []string) (string, bool) {
 	ep, ok := EndpointFromCmdline(cmdline)
-	if ok && sleepIdleFromCmdline(cmdline) {
-		st := a.stateFor(normalizeEndpoint(ep))
-		a.mu.Lock()
-		if !st.sleepIdle {
-			st.sleepIdle = true
-			st.grace = metricsIdleGraceTicks
-		}
-		a.mu.Unlock()
+	if !ok {
+		return ep, ok
 	}
+	sleepIdle := sleepIdleFromCmdline(cmdline)
+	st := a.stateFor(normalizeEndpoint(ep))
+	a.mu.Lock()
+	switch {
+	case sleepIdle && !st.sleepIdle:
+		st.sleepIdle = true
+		st.grace = metricsIdleGraceTicks
+	case !sleepIdle && st.sleepIdle:
+		// The process at this endpoint no longer runs with
+		// --sleep-idle-seconds: it was restarted or replaced. Drop the
+		// inherited gate and cached scrape so the new server gets normal
+		// unconditional /metrics polling.
+		*st = epState{}
+	}
+	a.mu.Unlock()
 	return ep, ok
 }
 
@@ -119,10 +128,11 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 		return s
 	}
 
-	var sleepingNow bool
+	var sleepingNow, sleepKnown bool
 	if code, body, err := a.get(ctx, endpoint+"/props"); err == nil && code == http.StatusOK {
 		var p propsResponse
 		if json.Unmarshal(body, &p) == nil {
+			sleepKnown = true
 			s.Role = p.Role
 			s.SlotsTotal = p.TotalSlots
 			s.CtxSize = p.DefaultGenerationSettings.NCtx
@@ -142,6 +152,15 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 	// the gate below (see metricsIdleGraceTicks).
 	st := a.stateFor(endpoint)
 	a.mu.Lock()
+	if !sleepKnown && st.sleeping {
+		// Failed or malformed /props: the sleep state is unknown this
+		// poll. Keep treating the server as sleeping — guessing "awake"
+		// would scrape /metrics, which wakes the server and reloads its
+		// model. Only an explicit is_sleeping=false clears the state.
+		a.mu.Unlock()
+		s.Status = model.StatusSleeping
+		return s
+	}
 	if sleepingNow {
 		st.sleeping = true
 		st.grace = 0
@@ -149,7 +168,7 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 		s.Status = model.StatusSleeping
 		return s
 	}
-	if st.sleeping { // woken by someone else's request: watch it again
+	if st.sleeping { // decoded is_sleeping=false: woken by someone else, watch it again
 		st.sleeping = false
 		st.grace = metricsIdleGraceTicks
 	}
@@ -167,8 +186,22 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 	}
 	a.mu.Unlock()
 
-	if code, body, err := a.get(ctx, endpoint+"/metrics"); err == nil && code == http.StatusOK {
-		m := ParsePromText(body)
+	mcode, mbody, merr := a.get(ctx, endpoint+"/metrics")
+	if merr == nil && (mcode == http.StatusNotImplemented || mcode == http.StatusNotFound) {
+		// Metrics are definitively unsupported (llama.cpp answers 501 when
+		// --metrics is off), so no activity signal will ever arrive on this
+		// path. Count the poll as quiet; after the grace period the
+		// sleep-idle gate stops these scrapes from resetting the server's
+		// idle timer forever.
+		a.mu.Lock()
+		if st.grace > 0 {
+			st.grace--
+		}
+		a.mu.Unlock()
+		return s
+	}
+	if merr == nil && mcode == http.StatusOK {
+		m := ParsePromText(mbody)
 		met := &model.LLMMetrics{
 			PromptTokensTotal:    m["llamacpp:prompt_tokens_total"],
 			PredictedTokensTotal: m["llamacpp:tokens_predicted_total"],
