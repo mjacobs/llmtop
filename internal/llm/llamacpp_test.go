@@ -215,6 +215,11 @@ func TestDetectDelegatesToCmdlineParser(t *testing.T) {
 // touching /metrics), and stop polling /metrics on sleep-idle-enabled servers
 // once they go quiet, resuming on GPU activity or a wake transition.
 
+// wokenProps is what a sleep-idle-capable server reports once awake: such
+// servers always include is_sleeping explicitly. workerProps (no field)
+// models a build without sleep support, whose state is "unknown".
+const wokenProps = `{"model_alias":"demo-model","model_path":"/m/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":false}`
+
 const idleMetrics = "llamacpp:prompt_tokens_total 1000\n" +
 	"llamacpp:tokens_predicted_total 5000\n" +
 	"llamacpp:n_decode_total 100\n" +
@@ -346,7 +351,7 @@ func TestSleepIdleGateResumesAfterWakeTransition(t *testing.T) {
 
 	// Some other client woke it: is_sleeping flips false. The adapter must
 	// resume /metrics polling even with no GPU hint yet.
-	props = workerProps
+	props = wokenProps
 	a.Now = func() time.Time { return base.Add(2 * time.Second) }
 	s := a.Fetch(context.Background(), srv.URL, FetchHint{})
 	if s.Status != model.StatusOK || hits != 1 {
@@ -426,14 +431,68 @@ func TestPropsFailurePreservesSleepingState(t *testing.T) {
 	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Status != model.StatusSleeping {
 		t.Fatalf("malformed-/props poll: status = %q, want sleeping preserved", s.Status)
 	}
+
+	// Valid JSON without is_sleeping is just as unknown: the zero value
+	// must not masquerade as an explicit false.
+	props = workerProps
+	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Status != model.StatusSleeping {
+		t.Fatalf("absent-is_sleeping poll: status = %q, want sleeping preserved", s.Status)
+	}
 	if hits != 0 {
 		t.Fatalf("/metrics hit %d times while sleep state unknown; polling wakes the server", hits)
 	}
 
-	// An explicit is_sleeping=false is still recognized as a wake.
-	props = workerProps
+	// Only an explicit is_sleeping=false is recognized as a wake.
+	props = wokenProps
 	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Status != model.StatusOK || hits != 1 {
 		t.Fatalf("woken poll: status=%q hits=%d, want ok/1", s.Status, hits)
+	}
+}
+
+// TestSleepIdleGateDropsCacheWhenMetricsBecomeUnsupported pins the
+// 200-to-501 transition: once /metrics definitively stops being served
+// (server replaced or reconfigured without --metrics), the gate must not
+// keep serving the sample cached from the 200 era.
+func TestSleepIdleGateDropsCacheWhenMetricsBecomeUnsupported(t *testing.T) {
+	metricsCode, hits := 200, 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(workerProps))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if metricsCode != 200 {
+			w.WriteHeader(metricsCode)
+			return
+		}
+		_, _ = w.Write([]byte(idleMetrics))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a := NewLlamaCpp()
+	base := time.Unix(11000, 0)
+	registerSleepIdle(t, a, srv)
+
+	a.Now = func() time.Time { return base }
+	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Metrics == nil {
+		t.Fatal("setup: first 200 poll must yield metrics")
+	}
+
+	metricsCode = 501
+	var last model.LLMServer
+	for i := 1; i < 6; i++ {
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		last = a.Fetch(context.Background(), srv.URL, FetchHint{})
+	}
+	if last.Metrics != nil {
+		t.Fatalf("gated poll served stale cached metrics after 501: %+v", last.Metrics)
+	}
+	if hits != metricsIdleGraceTicks {
+		t.Fatalf("/metrics hit %d times, want %d (one 200 + 501s until gated)", hits, metricsIdleGraceTicks)
 	}
 }
 

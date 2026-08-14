@@ -87,11 +87,13 @@ func (a *LlamaCpp) stateFor(endpoint string) *epState {
 }
 
 type propsResponse struct {
-	Role                      string `json:"role"`
-	ModelAlias                string `json:"model_alias"`
-	ModelPath                 string `json:"model_path"`
-	TotalSlots                int    `json:"total_slots"`
-	IsSleeping                bool   `json:"is_sleeping"`
+	Role       string `json:"role"`
+	ModelAlias string `json:"model_alias"`
+	ModelPath  string `json:"model_path"`
+	TotalSlots int    `json:"total_slots"`
+	// Pointer: absent/null must stay distinguishable from an explicit
+	// false — only the latter may clear a known sleeping state.
+	IsSleeping                *bool `json:"is_sleeping"`
 	DefaultGenerationSettings struct {
 		NCtx int `json:"n_ctx"`
 	} `json:"default_generation_settings"`
@@ -132,11 +134,13 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 	if code, body, err := a.get(ctx, endpoint+"/props"); err == nil && code == http.StatusOK {
 		var p propsResponse
 		if json.Unmarshal(body, &p) == nil {
-			sleepKnown = true
 			s.Role = p.Role
 			s.SlotsTotal = p.TotalSlots
 			s.CtxSize = p.DefaultGenerationSettings.NCtx
-			sleepingNow = p.IsSleeping
+			if p.IsSleeping != nil {
+				sleepKnown = true
+				sleepingNow = *p.IsSleeping
+			}
 			switch {
 			case p.ModelAlias != "" && p.ModelAlias != "llama-server":
 				s.Model = p.ModelAlias
@@ -153,10 +157,11 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 	st := a.stateFor(endpoint)
 	a.mu.Lock()
 	if !sleepKnown && st.sleeping {
-		// Failed or malformed /props: the sleep state is unknown this
-		// poll. Keep treating the server as sleeping — guessing "awake"
-		// would scrape /metrics, which wakes the server and reloads its
-		// model. Only an explicit is_sleeping=false clears the state.
+		// Failed or malformed /props, or a response without is_sleeping:
+		// the sleep state is unknown this poll. Keep treating the server
+		// as sleeping — guessing "awake" would scrape /metrics, which
+		// wakes the server and reloads its model. Only an explicit
+		// is_sleeping=false clears the state.
 		a.mu.Unlock()
 		s.Status = model.StatusSleeping
 		return s
@@ -197,6 +202,11 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 		if st.grace > 0 {
 			st.grace--
 		}
+		// Any cached scrape predates metrics becoming unsupported (server
+		// replaced or reconfigured): drop it so the gate never serves a
+		// stale sample indefinitely.
+		st.cached = nil
+		st.haveSample = false
 		a.mu.Unlock()
 		return s
 	}
