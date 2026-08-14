@@ -227,46 +227,53 @@ func TestRenderGPUPanelChartCaptions(t *testing.T) {
 			t.Errorf("caption line %d is %d cols, want %d (right-aligned): %q", i, w, width, lines[i])
 		}
 	}
-	// The util caption splits: GPU identity at the left edge, values at the
-	// right edge, whitespace between them.
-	plain := ansi.Strip(lines[util])
-	if !strings.HasPrefix(plain, "│ GPU0 NVIDIA RTX 4090 ") {
-		t.Errorf("util caption must start with the GPU name: %q", plain)
+	// Captions carry values only — the GPU name belongs to the title line.
+	for _, i := range []int{util, mem} {
+		if strings.Contains(lines[i], "NVIDIA") {
+			t.Errorf("caption must not repeat the GPU name: %q", ansi.Strip(lines[i]))
+		}
 	}
-	if !strings.HasSuffix(plain, "util 72% (llm 65%) │") {
-		t.Errorf("util caption must end with the values: %q", plain)
+
+	// The title line splits: GPU identity at the left edge, temp and power at
+	// the right edge, whitespace between them.
+	title := ansi.Strip(lines[rule-1])
+	if !strings.HasPrefix(title, "│ GPU0 NVIDIA RTX 4090 ") {
+		t.Errorf("title must start with the GPU name: %q", title)
 	}
-	if !strings.Contains(plain, "4090   ") {
-		t.Errorf("util caption halves must be pushed apart: %q", plain)
+	if !strings.HasSuffix(title, "64° 412W │") {
+		t.Errorf("title must end with temp and power: %q", title)
+	}
+	if !strings.Contains(title, "4090   ") {
+		t.Errorf("title halves must be pushed apart: %q", title)
 	}
 }
 
-// TestRenderGPUPanelNarrowCaptionsKeepValues pins the caption clipping
-// direction: when the panel is too narrow for a whole caption, the live
-// values at its right edge (under the newest samples) survive, flush right;
-// only the leading GPU name (redundant with the panel title) is dropped.
-func TestRenderGPUPanelNarrowCaptionsKeepValues(t *testing.T) {
-	const width, chartH = 30, 2 // inner 26 < both caption widths (41 and 30)
+// TestRenderGPUPanelNarrowValuesSurvive pins the clipping direction on the
+// panel's two-part lines: when the panel is too narrow, the values at the
+// right edge survive whole and the left-hand GPU name gives way.
+func TestRenderGPUPanelNarrowValuesSurvive(t *testing.T) {
+	const width, chartH = 30, 2 // inner 26 < the mem caption (30) and title (36)
 	hrs := buildHostRenders(SampleHostStates())
 	lines := strings.Split(renderGPUPanel(hrs[0], 0, width, 16, chartH, false, false, DefaultTheme()), "\n")
 
-	var utilLine, memLine string
+	var titleLine, memLine string
 	for _, line := range lines {
 		switch {
-		case strings.Contains(line, "util 72%"):
-			utilLine = line
+		case strings.Contains(line, "GPU0"):
+			titleLine = line
 		case strings.Contains(line, "(llm 21.0G)"):
 			memLine = line
 		}
 	}
-	if utilLine == "" {
-		t.Fatalf("narrow panel dropped the util values:\n%s", strings.Join(lines, "\n"))
+	if titleLine == "" {
+		t.Fatalf("narrow panel dropped the title:\n%s", strings.Join(lines, "\n"))
 	}
-	if !strings.Contains(utilLine, "(llm 65%)") {
-		t.Errorf("util caption lost its llm value: %q", utilLine)
+	// The title keeps temp and power and clips the name it cannot fit.
+	if !strings.Contains(titleLine, "64°") || !strings.Contains(titleLine, "412W") {
+		t.Errorf("narrow title lost temp/power: %q", ansi.Strip(titleLine))
 	}
-	if strings.Contains(utilLine, "NVIDIA") {
-		t.Errorf("util caption kept the GPU name over the values: %q", utilLine)
+	if !strings.Contains(titleLine, "…") {
+		t.Errorf("over-long title name must be clipped with an ellipsis: %q", ansi.Strip(titleLine))
 	}
 	if memLine == "" {
 		t.Fatalf("narrow panel dropped the mem values:\n%s", strings.Join(lines, "\n"))
@@ -274,11 +281,11 @@ func TestRenderGPUPanelNarrowCaptionsKeepValues(t *testing.T) {
 	if !strings.Contains(memLine, "22.5/32.0G") {
 		t.Errorf("mem caption lost its byte pair: %q", memLine)
 	}
-	// Flush right: the full bordered caption lines span exactly the panel
-	// width, so the values end at the inner right edge.
-	for _, line := range []string{utilLine, memLine} {
+	// Flush right: the full bordered lines span exactly the panel width, so
+	// the values end at the inner right edge.
+	for _, line := range []string{titleLine, memLine} {
 		if w := lipgloss.Width(line); w != width {
-			t.Errorf("caption line is %d cols, want %d (right-aligned): %q", w, width, line)
+			t.Errorf("line is %d cols, want %d (right-aligned): %q", w, width, ansi.Strip(line))
 		}
 	}
 }

@@ -100,13 +100,11 @@ func sectionRule(label string, width int, th Theme) string {
 	return truncateLine(th.Dim.Render(line), width)
 }
 
-// utilLabel renders the util-chart caption in halves — the GPU's identity
-// (`GPU0 NVIDIA RTX 4090`) and its live values (`util 72% (llm 65%)`) — so
-// the panel can pin one to each edge of the caption line.
-func utilLabel(gpu model.GPU, th Theme) (name, stats string) {
-	return fmt.Sprintf("GPU%d %s", gpu.Index, gpu.Name),
-		th.Util.Render(fmt.Sprintf("util %d%%", gpu.UtilPct)) + " " +
-			th.LLM.Render(fmt.Sprintf("(llm %d%%)", gpu.LLMUtilPct))
+// utilLabel renders the util-chart caption: `util 72% (llm 65%)`. The GPU's
+// identity is not repeated here — the panel title, two lines up, carries it.
+func utilLabel(gpu model.GPU, th Theme) string {
+	return th.Util.Render(fmt.Sprintf("util %d%%", gpu.UtilPct)) + " " +
+		th.LLM.Render(fmt.Sprintf("(llm %d%%)", gpu.LLMUtilPct))
 }
 
 // memLabel renders the mem-chart label: `mem 61% 22.5/32.0G (llm 20.0G)`.
@@ -280,11 +278,11 @@ func panelProcRow(p model.GPUProc, th Theme) string {
 		fmt.Sprintf("%-*s%s", pColVRAM, FmtBytes(p.MemBytes), sm)
 }
 
-// renderGPUPanel renders one bordered per-GPU detail panel: title
-// (index, name, temp, power), USAGE HISTORY rule, util chart, its caption
-// (GPU name left, values right), mem chart, its right-aligned caption — both
-// captions keep their values at the right edge, under the newest samples the
-// charts draw there — LLM SERVERS rule, the server blocks mapped to this GPU, and
+// renderGPUPanel renders one bordered per-GPU detail panel: title (index and
+// name at the left edge, temp and power at the right), USAGE HISTORY rule,
+// util chart, its caption, mem chart, its caption — both captions are flush
+// right, under the newest samples the charts draw there, and neither repeats
+// the GPU name from the title — LLM SERVERS rule, the server blocks mapped to this GPU, and
 // (showProcs) the GPU PROCESSES rule plus its process table, which absorbs the
 // remaining contentH budget. The process rule follows showProcs just like the
 // table. The panel is exactly contentH+2 terminal rows tall so grid rows stay
@@ -302,18 +300,17 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 	gpu := h.Snap.GPUs[gpuIdx]
 
 	var lines []string
-	title := fmt.Sprintf("GPU%d %s", gpu.Index, gpu.Name) +
-		th.Warm.Render(fmt.Sprintf(" %d°", gpu.TempC)) +
-		th.Power.Render(fmt.Sprintf(" %dW", gpu.PowerW))
-	lines = append(lines, truncateLine(title, inner))
+	title := fmt.Sprintf("GPU%d %s", gpu.Index, gpu.Name)
+	env := th.Warm.Render(fmt.Sprintf("%d°", gpu.TempC)) + " " +
+		th.Power.Render(fmt.Sprintf("%dW", gpu.PowerW))
+	lines = append(lines, splitAlign(title, env, inner))
 	lines = append(lines, sectionRule("USAGE HISTORY", inner, th))
 
 	utilChart := renderGraph(
 		ringSlice(h.UtilHist, gpu.Index), ringSlice(h.LLMUtilHist, gpu.Index),
 		inner, chartH, th.Util, th.LLM)
 	lines = append(lines, strings.Split(utilChart, "\n")...)
-	name, stats := utilLabel(gpu, th)
-	lines = append(lines, splitAlign(name, stats, inner))
+	lines = append(lines, rightAlign(utilLabel(gpu, th), inner))
 
 	memChart := renderGraph(
 		ringSlice(h.MemHist, gpu.Index), ringSlice(h.LLMMemHist, gpu.Index),
