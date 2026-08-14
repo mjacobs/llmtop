@@ -216,8 +216,13 @@ func truncateLine(s string, width int) string {
 
 // rightAlign clips a line to width and pads it to the right edge, so chart
 // captions sit under the newest samples rather than under empty history.
+// Overflow is clipped from the LEFT: the live values sit at the caption's
+// end, so a narrow panel drops the leading GPU name (redundant with the
+// panel title), never the values.
 func rightAlign(s string, width int) string {
-	s = truncateLine(s, width)
+	if w := lipgloss.Width(s); w > width {
+		s = ansi.TruncateLeft(s, w-width+1, "…")
+	}
 	if pad := width - lipgloss.Width(s); pad > 0 {
 		return strings.Repeat(" ", pad) + s
 	}

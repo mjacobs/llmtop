@@ -228,6 +228,48 @@ func TestRenderGPUPanelChartCaptions(t *testing.T) {
 	}
 }
 
+// TestRenderGPUPanelNarrowCaptionsKeepValues pins the caption clipping
+// direction: when the panel is too narrow for a whole caption, the live
+// values at its right edge (under the newest samples) survive, flush right;
+// only the leading GPU name (redundant with the panel title) is dropped.
+func TestRenderGPUPanelNarrowCaptionsKeepValues(t *testing.T) {
+	const width, chartH = 30, 2 // inner 26 < both caption widths (41 and 30)
+	hrs := buildHostRenders(SampleHostStates())
+	lines := strings.Split(renderGPUPanel(hrs[0], 0, width, 16, chartH, false, false, DefaultTheme()), "\n")
+
+	var utilLine, memLine string
+	for _, line := range lines {
+		switch {
+		case strings.Contains(line, "util 72%"):
+			utilLine = line
+		case strings.Contains(line, "(llm 21.0G)"):
+			memLine = line
+		}
+	}
+	if utilLine == "" {
+		t.Fatalf("narrow panel dropped the util values:\n%s", strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(utilLine, "(llm 65%)") {
+		t.Errorf("util caption lost its llm value: %q", utilLine)
+	}
+	if strings.Contains(utilLine, "NVIDIA") {
+		t.Errorf("util caption kept the GPU name over the values: %q", utilLine)
+	}
+	if memLine == "" {
+		t.Fatalf("narrow panel dropped the mem values:\n%s", strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(memLine, "22.5/32.0G") {
+		t.Errorf("mem caption lost its byte pair: %q", memLine)
+	}
+	// Flush right: the full bordered caption lines span exactly the panel
+	// width, so the values end at the inner right edge.
+	for _, line := range []string{utilLine, memLine} {
+		if w := lipgloss.Width(line); w != width {
+			t.Errorf("caption line is %d cols, want %d (right-aligned): %q", w, width, line)
+		}
+	}
+}
+
 func TestRenderGPUPanelSectionOrderWhenRegionsAreEmpty(t *testing.T) {
 	h := NewHostState("idle")
 	h.Snap = &model.Snapshot{GPUs: []model.GPU{{
