@@ -229,6 +229,22 @@ func rightAlign(s string, width int) string {
 	return s
 }
 
+// splitAlign renders left flush to the left edge and right flush to the
+// right edge of a single width-column line. When the two cannot both fit,
+// left gives way first — it repeats the panel title, while right carries the
+// live values.
+func splitAlign(left, right string, width int) string {
+	room := width - lipgloss.Width(right) - 1 // at least one space between
+	if room <= 0 {
+		return rightAlign(right, width)
+	}
+	if lipgloss.Width(left) > room {
+		left = ansi.Truncate(left, room, "…")
+	}
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	return left + strings.Repeat(" ", gap) + right
+}
+
 // titleLine renders the host name plus a dim status suffix as the panel's
 // first content line (lipgloss border-embedded titles are fiddly to align).
 func titleLine(h *HostState, th Theme, width int) string {

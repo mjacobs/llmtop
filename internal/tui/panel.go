@@ -100,11 +100,13 @@ func sectionRule(label string, width int, th Theme) string {
 	return truncateLine(th.Dim.Render(line), width)
 }
 
-// utilLabel renders the util-chart label: `GPU0 NVIDIA RTX 4090 — util 72% (llm 65%)`.
-func utilLabel(gpu model.GPU, th Theme) string {
-	return fmt.Sprintf("GPU%d %s — ", gpu.Index, gpu.Name) +
+// utilLabel renders the util-chart caption in halves — the GPU's identity
+// (`GPU0 NVIDIA RTX 4090`) and its live values (`util 72% (llm 65%)`) — so
+// the panel can pin one to each edge of the caption line.
+func utilLabel(gpu model.GPU, th Theme) (name, stats string) {
+	return fmt.Sprintf("GPU%d %s", gpu.Index, gpu.Name),
 		th.Util.Render(fmt.Sprintf("util %d%%", gpu.UtilPct)) + " " +
-		th.LLM.Render(fmt.Sprintf("(llm %d%%)", gpu.LLMUtilPct))
+			th.LLM.Render(fmt.Sprintf("(llm %d%%)", gpu.LLMUtilPct))
 }
 
 // memLabel renders the mem-chart label: `mem 61% 22.5/32.0G (llm 20.0G)`.
@@ -279,10 +281,10 @@ func panelProcRow(p model.GPUProc, th Theme) string {
 }
 
 // renderGPUPanel renders one bordered per-GPU detail panel: title
-// (index, name, temp, power), USAGE HISTORY rule, util chart, its
-// right-aligned caption, mem chart, its right-aligned caption (each caption
-// sits under the newest samples, at the right edge where the charts draw
-// them), LLM SERVERS rule, the server blocks mapped to this GPU, and
+// (index, name, temp, power), USAGE HISTORY rule, util chart, its caption
+// (GPU name left, values right), mem chart, its right-aligned caption — both
+// captions keep their values at the right edge, under the newest samples the
+// charts draw there — LLM SERVERS rule, the server blocks mapped to this GPU, and
 // (showProcs) the GPU PROCESSES rule plus its process table, which absorbs the
 // remaining contentH budget. The process rule follows showProcs just like the
 // table. The panel is exactly contentH+2 terminal rows tall so grid rows stay
@@ -310,7 +312,8 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 		ringSlice(h.UtilHist, gpu.Index), ringSlice(h.LLMUtilHist, gpu.Index),
 		inner, chartH, th.Util, th.LLM)
 	lines = append(lines, strings.Split(utilChart, "\n")...)
-	lines = append(lines, rightAlign(utilLabel(gpu, th), inner))
+	name, stats := utilLabel(gpu, th)
+	lines = append(lines, splitAlign(name, stats, inner))
 
 	memChart := renderGraph(
 		ringSlice(h.MemHist, gpu.Index), ringSlice(h.LLMMemHist, gpu.Index),

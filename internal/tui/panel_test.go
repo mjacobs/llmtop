@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
 	"github.com/mjacobs/llmtop/internal/model"
@@ -225,6 +226,18 @@ func TestRenderGPUPanelChartCaptions(t *testing.T) {
 		if w := lipgloss.Width(lines[i]); w != width {
 			t.Errorf("caption line %d is %d cols, want %d (right-aligned): %q", i, w, width, lines[i])
 		}
+	}
+	// The util caption splits: GPU identity at the left edge, values at the
+	// right edge, whitespace between them.
+	plain := ansi.Strip(lines[util])
+	if !strings.HasPrefix(plain, "│ GPU0 NVIDIA RTX 4090 ") {
+		t.Errorf("util caption must start with the GPU name: %q", plain)
+	}
+	if !strings.HasSuffix(plain, "util 72% (llm 65%) │") {
+		t.Errorf("util caption must end with the values: %q", plain)
+	}
+	if !strings.Contains(plain, "4090   ") {
+		t.Errorf("util caption halves must be pushed apart: %q", plain)
 	}
 }
 
