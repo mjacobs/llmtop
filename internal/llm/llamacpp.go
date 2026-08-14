@@ -58,7 +58,9 @@ func (a *LlamaCpp) Detect(cmdline []string) (string, bool) {
 		return ep, ok
 	}
 	sleepIdle := sleepIdleFromCmdline(cmdline)
-	st := a.stateFor(normalizeEndpoint(ep))
+	nep := normalizeEndpoint(ep)
+	st := a.stateFor(nep)
+	reset := false
 	a.mu.Lock()
 	switch {
 	case sleepIdle && !st.sleepIdle:
@@ -70,8 +72,13 @@ func (a *LlamaCpp) Detect(cmdline []string) (string, bool) {
 		// inherited gate and cached scrape so the new server gets normal
 		// unconditional /metrics polling.
 		*st = epState{}
+		reset = true
 	}
 	a.mu.Unlock()
+	if reset {
+		// The rate anchors belong to the replaced process too.
+		a.rates.Reset(nep)
+	}
 	return ep, ok
 }
 
@@ -202,12 +209,14 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 		if st.grace > 0 {
 			st.grace--
 		}
-		// Any cached scrape predates metrics becoming unsupported (server
-		// replaced or reconfigured): drop it so the gate never serves a
-		// stale sample indefinitely.
+		// Any cached scrape and rate anchors predate metrics becoming
+		// unsupported (server replaced or reconfigured): drop them so the
+		// gate never serves a stale sample and a later 200 is treated as
+		// a fresh first sample rather than amortized against old anchors.
 		st.cached = nil
 		st.haveSample = false
 		a.mu.Unlock()
+		a.rates.Reset(endpoint)
 		return s
 	}
 	if merr == nil && mcode == http.StatusOK {

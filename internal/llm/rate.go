@@ -55,6 +55,17 @@ func NewRateTracker() *RateTracker {
 	return &RateTracker{state: make(map[string]*endpointState)}
 }
 
+// Reset forgets an endpoint's anchors and learned ratio. Call it when the
+// server behind the endpoint is known to have been replaced or reconfigured:
+// TPS self-heals on counter regression, but a replacement whose counters are
+// equal or higher would otherwise be amortized against the old anchors,
+// emitting rates that span two server lifetimes.
+func (r *RateTracker) Reset(endpoint string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.state, endpoint)
+}
+
 // TPS returns truthful per-second token rates for this endpoint, given the
 // latest cumulative counters and whether a request is currently in flight
 // (requestsProcessing > 0).

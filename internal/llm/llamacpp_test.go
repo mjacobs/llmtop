@@ -454,7 +454,7 @@ func TestPropsFailurePreservesSleepingState(t *testing.T) {
 // (server replaced or reconfigured without --metrics), the gate must not
 // keep serving the sample cached from the 200 era.
 func TestSleepIdleGateDropsCacheWhenMetricsBecomeUnsupported(t *testing.T) {
-	metricsCode, hits := 200, 0
+	metricsCode, payload, hits := 200, idleMetrics, 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -468,7 +468,7 @@ func TestSleepIdleGateDropsCacheWhenMetricsBecomeUnsupported(t *testing.T) {
 			w.WriteHeader(metricsCode)
 			return
 		}
-		_, _ = w.Write([]byte(idleMetrics))
+		_, _ = w.Write([]byte(payload))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -493,6 +493,29 @@ func TestSleepIdleGateDropsCacheWhenMetricsBecomeUnsupported(t *testing.T) {
 	}
 	if hits != metricsIdleGraceTicks {
 		t.Fatalf("/metrics hit %d times, want %d (one 200 + 501s until gated)", hits, metricsIdleGraceTicks)
+	}
+
+	// Metrics return, with counters higher than the pre-501 era (a busier
+	// replacement server). The scrape must be treated as a fresh first
+	// sample — lifetime-gauge fallbacks — not amortized against anchors
+	// captured before the 501s, which would emit rates spanning two server
+	// lifetimes.
+	metricsCode = 200
+	payload = "llamacpp:prompt_tokens_total 9000\n" +
+		"llamacpp:tokens_predicted_total 90000\n" +
+		"llamacpp:n_decode_total 900\n" +
+		"llamacpp:prompt_tokens_seconds 42.5\n" +
+		"llamacpp:predicted_tokens_seconds 33.25\n" +
+		"llamacpp:requests_processing 0\n" +
+		"llamacpp:requests_deferred 0\n"
+	a.Now = func() time.Time { return base.Add(12 * time.Second) }
+	s := a.Fetch(context.Background(), srv.URL, FetchHint{GPUActive: true}) // reopen the gate
+	if s.Metrics == nil {
+		t.Fatal("returning 200 poll must yield metrics")
+	}
+	if s.Metrics.PromptTPS != 42.5 || s.Metrics.PredictedTPS != 33.25 {
+		t.Fatalf("returning metrics rates = %v/%v, want gauge fallbacks 42.5/33.25 (fresh sample)",
+			s.Metrics.PromptTPS, s.Metrics.PredictedTPS)
 	}
 }
 
