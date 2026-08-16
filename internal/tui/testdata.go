@@ -82,8 +82,8 @@ func SampleHostStates() []*HostState {
 		},
 	}})
 
-	loading := NewHostState("bravo")
-	loading.Apply(client.Update{Host: "bravo", Snapshot: &model.Snapshot{
+	bravo := NewHostState("bravo")
+	bravo.Apply(client.Update{Host: "bravo", Snapshot: &model.Snapshot{
 		Host: model.HostInfo{
 			Name: "bravo", Hostname: "bravo",
 			DriverVersion: "580.65.06", AgentVersion: "0.4.0",
@@ -107,5 +107,5 @@ func SampleHostStates() []*HostState {
 	charlie := NewHostState("charlie")
 	charlie.Apply(client.Update{Host: "charlie", Err: errors.New("dial tcp 192.0.2.30:8080: connect: connection refused")})
 
-	return []*HostState{alpha, loading, charlie}
+	return []*HostState{alpha, bravo, charlie}
 }

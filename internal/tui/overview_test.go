@@ -19,7 +19,7 @@ func TestRenderOverviewContent(t *testing.T) {
 	out := RenderOverview(hosts, 0, 100, 60, DefaultTheme())
 
 	for _, want := range []string{
-		"alpha",             // host name
+		"alpha",            // host name
 		"GPU0",             // gpu panel title
 		"qwen36-35b-mtp",   // server model
 		"t/s",              // throughput

@@ -218,7 +218,7 @@ func TestDetectDelegatesToCmdlineParser(t *testing.T) {
 // wokenProps is what a sleep-idle-capable server reports once awake: such
 // servers always include is_sleeping explicitly. workerProps (no field)
 // models a build without sleep support, whose state is "unknown".
-const wokenProps = `{"model_alias":"demo-model","model_path":"/m/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":false}`
+const wokenProps = `{"model_alias":"demo-model","model_path":"/models/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":false}`
 
 const idleMetrics = "llamacpp:prompt_tokens_total 1000\n" +
 	"llamacpp:tokens_predicted_total 5000\n" +
@@ -263,7 +263,7 @@ func registerSleepIdle(t *testing.T, a *LlamaCpp, srv *httptest.Server) {
 }
 
 func TestFetchSleepingServerSkipsMetrics(t *testing.T) {
-	props := `{"model_alias":"demo-model","model_path":"/m/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
+	props := `{"model_alias":"demo-model","model_path":"/models/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
 	metrics, hits := idleMetrics, 0
 	srv := switchableServer(t, &props, &metrics, &hits)
 
@@ -336,7 +336,7 @@ func TestSleepIdleGateResumesOnGPUActivity(t *testing.T) {
 }
 
 func TestSleepIdleGateResumesAfterWakeTransition(t *testing.T) {
-	props := `{"model_alias":"demo-model","model_path":"/m/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
+	props := `{"model_alias":"demo-model","model_path":"/models/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
 	metrics, hits := idleMetrics, 0
 	srv := switchableServer(t, &props, &metrics, &hits)
 
@@ -393,7 +393,7 @@ func TestSleepIdleGateAgesOutWhenMetricsDisabled(t *testing.T) {
 }
 
 func TestPropsFailurePreservesSleepingState(t *testing.T) {
-	sleepingProps := `{"model_alias":"demo-model","model_path":"/m/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
+	sleepingProps := `{"model_alias":"demo-model","model_path":"/models/demo-model.gguf","total_slots":1,"default_generation_settings":{"n_ctx":131072},"is_sleeping":true}`
 	props, propsCode := sleepingProps, 200
 	hits := 0
 	mux := http.NewServeMux()

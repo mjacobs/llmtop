@@ -106,8 +106,8 @@ local = true
   url = "http://127.0.0.1:8081"
 
 [[hosts]]
-name  = "charlie"
-addr  = "192.0.2.x:9832"
+name  = "gpu-box"
+addr  = "192.0.2.10:9832"
 token = "…"              # optional, must match agent's
 
 [agent]                   # used by `llmtop agent`

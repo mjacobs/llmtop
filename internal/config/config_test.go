@@ -27,7 +27,7 @@ local = true
   url = "http://127.0.0.1:8081"
 
 [[hosts]]
-name  = "charlie"
+name  = "remote-host"
 addr  = "192.0.2.40:9832"
 token = "s3cret"
 
