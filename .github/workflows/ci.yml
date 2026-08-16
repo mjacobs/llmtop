@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Install golangci-lint only; `make check` runs it so CI and a local
+      # `make check` execute the exact same gate.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12
+          install-only: true
+
+      - name: fmt-check, vet, lint, test
+        run: make check
