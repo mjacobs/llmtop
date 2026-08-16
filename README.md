@@ -1,8 +1,9 @@
 # llmtop
 
-An [nvtop](https://github.com/Syllo/nvtop)-like terminal UI for NVIDIA GPUs
-that also understands LLM serving. `llmtop` charts per-GPU utilization and
-memory like nvtop, and on top of that shows what your
+A [btop](https://github.com/aristocratos/btop)-style terminal UI for LLM
+inference servers and the NVIDIA GPUs under them. `llmtop` charts per-GPU
+utilization and memory the way [nvtop](https://github.com/Syllo/nvtop) does,
+and on top of that shows what your
 [llama.cpp](https://github.com/ggml-org/llama.cpp) servers are doing — model
 loaded, prompt and generation tokens/sec, KV-cache usage, slot occupancy — with
 GPU usage split between LLM serving and everything else (compositor,

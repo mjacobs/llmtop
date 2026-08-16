@@ -1,4 +1,4 @@
-// llmtop: an nvtop-like TUI for GPU + LLM-serving monitoring.
+// llmtop: a btop-style TUI for LLM-serving + GPU monitoring, local and remote.
 package main
 
 import (
