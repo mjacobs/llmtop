@@ -105,6 +105,14 @@ func TestHistoryCapsToNewest(t *testing.T) {
 	}
 }
 
+func TestHTTPServerTimeouts(t *testing.T) {
+	srv := newHTTPServer("127.0.0.1:0", http.NotFoundHandler())
+	if srv.ReadHeaderTimeout <= 0 || srv.ReadTimeout <= 0 || srv.WriteTimeout <= 0 || srv.IdleTimeout <= 0 {
+		t.Fatalf("every server timeout must be set: header=%v read=%v write=%v idle=%v",
+			srv.ReadHeaderTimeout, srv.ReadTimeout, srv.WriteTimeout, srv.IdleTimeout)
+	}
+}
+
 func TestAuth(t *testing.T) {
 	s, ts := newTestServer(t, "s3cret")
 	s.SampleNow(context.Background())

@@ -110,11 +110,24 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// newHTTPServer builds the agent's listener with timeouts on every phase of
+// a connection, so a slow or idle client cannot hold a goroutine forever.
+func newHTTPServer(listen string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              listen,
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+}
+
 // Run serves the agent until ctx is cancelled.
 func Run(ctx context.Context, col *collector.Collector, listen, token string, interval time.Duration) error {
 	s := New(col, token)
 	go s.RunSampling(ctx, interval)
-	srv := &http.Server{Addr: listen, Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second}
+	srv := newHTTPServer(listen, s.Handler())
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {
