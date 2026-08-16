@@ -52,10 +52,10 @@ install `gcc` and the libc headers (`dnf install gcc glibc-devel`,
 `apt install build-essential`) and build again. The NVIDIA driver itself is
 only needed at **runtime**: the binary builds fine on a machine with no GPU.
 
-Without a working driver the local host shows as
-`unreachable: nvml init: no NVIDIA driver found …` in the TUI. `llmtop agent`
-logs the same warning and keeps serving process and llama.cpp data with no GPU
-section.
+Without a working driver the local host has no GPU panels; its strip carries
+`gpu sample: nvml init: no NVIDIA driver found …` and still lists the
+machine's llama.cpp servers. `llmtop agent` logs the same warning at startup
+and keeps serving process and llama.cpp data the same way.
 
 `make build` produces `./llmtop` in the checkout without installing; `make
 uninstall` removes the installed binary. `make help` lists all targets.

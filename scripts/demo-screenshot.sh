@@ -30,10 +30,12 @@ tmp=$(mktemp -d)
 trap 'tmux kill-session -t "$session" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 # An empty config keeps the maintainer's own ~/.config/llmtop out of the
-# picture (refresh_ms would change how much history the charts show).
+# picture (refresh_ms would change how much history the charts show). The
+# path is shell-escaped because tmux runs the command string through a shell.
 : >"$tmp/empty.toml"
+cfg=$(printf %q "$tmp/empty.toml")
 tmux new-session -d -s "$session" -x "$COLS" -y "$ROWS" \
-	"TERM=xterm-256color COLORTERM=truecolor ./llmtop --demo --config '$tmp/empty.toml'"
+	"TERM=xterm-256color COLORTERM=truecolor ./llmtop --demo --config $cfg"
 sleep 2
 tmux send-keys -t "$session" '+' # halve the refresh interval so charts fill faster
 sleep "$SECS"
