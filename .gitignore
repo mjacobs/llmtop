@@ -1,8 +1,11 @@
+# build and test artifacts
 /llmtop
 *.test
+/coverage.out
+
+# local agent/tooling scratch — never committed
 .superpowers/
 .worktrees/
-# roborev snapshots
 /.roborev/
 .kata.local.toml
 AGENTS.local.md
