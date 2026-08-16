@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,6 +61,31 @@ func TestLoadMissingFileGivesDefault(t *testing.T) {
 		t.Fatal("missing config file must not be an error")
 	}
 	assertDefault(t, cfg)
+}
+
+func TestLoadExplicit(t *testing.T) {
+	t.Run("missing file is an error", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "nope.toml")
+		_, err := LoadExplicit(p)
+		if err == nil {
+			t.Fatal("want error for a missing --config file, got nil")
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("err = %v, want it to wrap fs.ErrNotExist", err)
+		}
+		if want := "config " + p + ": no such file or directory"; err.Error() != want {
+			t.Errorf("err = %q, want %q", err, want)
+		}
+	})
+	t.Run("existing file loads like Load", func(t *testing.T) {
+		cfg, err := LoadExplicit(write(t, "refresh_ms = 250\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.RefreshMS != 250 {
+			t.Fatalf("RefreshMS = %d, want 250", cfg.RefreshMS)
+		}
+	})
 }
 
 func TestDefault(t *testing.T) { assertDefault(t, Default()) }

@@ -1,10 +1,13 @@
 // Package config loads llmtop's TOML configuration.
 // Default path: ~/.config/llmtop/config.toml; a missing file is not an
-// error — it yields Default() (monitor the local machine only).
+// error — it yields Default() (monitor the local machine only). A path
+// the user named explicitly (LoadExplicit) must exist.
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -54,14 +57,28 @@ func Default() Config {
 	}
 }
 
-func Load(path string) (Config, error) {
+// Load reads the config at path. A missing file is not an error: it
+// yields Default(), which is what the default path usually hits.
+func Load(path string) (Config, error) { return load(path, false) }
+
+// LoadExplicit is Load for a path the user named on the command line
+// (--config): a missing file is an error, not a silent fallback.
+func LoadExplicit(path string) (Config, error) { return load(path, true) }
+
+func load(path string, mustExist bool) (Config, error) {
 	cfg := Default()
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return cfg, nil
-	}
 	if err != nil {
-		return Config{}, err
+		if os.IsNotExist(err) && !mustExist {
+			return cfg, nil
+		}
+		// Drop the "open" verb from *PathError so the message reads
+		// "config /path: no such file or directory".
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			err = pe.Err
+		}
+		return Config{}, fmt.Errorf("config %s: %w", path, err)
 	}
 	// User-provided hosts replace the default local-only list.
 	cfg.Hosts = nil
