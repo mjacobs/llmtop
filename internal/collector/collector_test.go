@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 
@@ -151,6 +152,104 @@ func (failingVendor) Shutdown()                      {}
 func (failingVendor) DriverVersion() (string, error) { return "x", nil }
 func (failingVendor) Sample() ([]gpu.DeviceSample, []gpu.ProcSample, error) {
 	return nil, nil, context.DeadlineExceeded
+}
+
+// echoAdapter answers every fetch with a fixed server record (Endpoint filled
+// in), so tests can feed the collector strings of their choosing.
+type echoAdapter struct{ srv model.LLMServer }
+
+func (echoAdapter) Kind() string { return "fake" }
+func (echoAdapter) Detect(cmdline []string) (string, bool) {
+	if len(cmdline) == 2 && cmdline[0] == "fake-server" {
+		return "http://127.0.0.1:" + cmdline[1], true
+	}
+	return "", false
+}
+func (e echoAdapter) Fetch(_ context.Context, endpoint string, _ llm.FetchHint) model.LLMServer {
+	srv := e.srv
+	srv.Endpoint = endpoint
+	return srv
+}
+
+func TestCollectVendorFailureStillDiscoversServers(t *testing.T) {
+	// GPU sampling failing (NVML never came up, transient error) must not
+	// short-circuit the tick: the proc scan and LLM discovery still run.
+	scanner := &procs.Fake{Table: map[int32]procs.ProcInfo{
+		100: {PID: 100, PPID: 1, Comm: "fake-server", Cmdline: []string{"fake-server", "1001"}},
+	}}
+	ad := echoAdapter{srv: model.LLMServer{Kind: "fake", Status: model.StatusOK, Model: "m"}}
+	c := New("h", failingVendor{}, scanner, []llm.Adapter{ad}, []string{"http://127.0.0.1:1002"}, "0.1.0")
+	if err := c.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	s := c.Collect(context.Background())
+
+	if len(s.Errors) == 0 || len(s.GPUs) != 0 || len(s.Procs) != 0 {
+		t.Fatalf("want gpu error and no gpu data, got %+v", s)
+	}
+	if len(s.Servers) != 2 {
+		t.Fatalf("want scanned + static server, got %+v", s.Servers)
+	}
+	byEP := map[string]model.LLMServer{}
+	for _, srv := range s.Servers {
+		byEP[srv.Endpoint] = srv
+	}
+	if srv := byEP["http://127.0.0.1:1001"]; srv.PID != 100 || srv.Model != "m" {
+		t.Fatalf("scanned server = %+v", srv)
+	}
+	if srv := byEP["http://127.0.0.1:1002"]; srv.PID != 0 || srv.Model != "m" {
+		t.Fatalf("static server = %+v", srv)
+	}
+}
+
+type initFailingVendor struct{ failingVendor }
+
+func (initFailingVendor) Init() error { return context.DeadlineExceeded }
+
+func TestInitRecordsHostnameBeforeVendor(t *testing.T) {
+	c := New("h", initFailingVendor{}, &procs.Fake{}, nil, nil, "0.1.0")
+	if err := c.Init(); err == nil {
+		t.Fatal("Init: want vendor error")
+	}
+	s := c.Collect(context.Background())
+	hn, _ := os.Hostname()
+	if s.Host.Hostname != hn {
+		t.Fatalf("Hostname = %q, want %q even when the vendor fails to init", s.Host.Hostname, hn)
+	}
+	if s.Host.DriverVersion != "" {
+		t.Fatalf("DriverVersion = %q, want empty when the vendor fails to init", s.Host.DriverVersion)
+	}
+}
+
+func TestCollectSanitizesUntrustedStrings(t *testing.T) {
+	// Comm names, adapter-reported model aliases and the like come from
+	// other processes; control bytes must be gone by the time the
+	// snapshot leaves the collector.
+	vendor := gpu.NewFake(1)
+	vendor.SetProcs([]gpu.ProcSample{{PID: 100, GPUIndex: 0, MemBytes: 1 << 30, SMUtilPct: 10}})
+	scanner := &procs.Fake{Table: map[int32]procs.ProcInfo{
+		100: {PID: 100, PPID: 1, Comm: "fake\x1b[31m-server", Cmdline: []string{"fake-server", "1001"}},
+	}}
+	ad := echoAdapter{srv: model.LLMServer{Kind: "fake", Status: model.StatusOK, Model: "\x1b[31mevil\r\nmodel"}}
+	c := New("h\x1b[2J", vendor, scanner, []llm.Adapter{ad}, nil, "0.1.0")
+	if err := c.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	s := c.Collect(context.Background())
+
+	if len(s.Servers) != 1 || s.Servers[0].Model != "[31mevilmodel" {
+		t.Fatalf("servers = %+v, want model alias with control bytes stripped", s.Servers)
+	}
+	if len(s.Procs) != 1 || s.Procs[0].Name != "fake[31m-server" {
+		t.Fatalf("procs = %+v, want comm with control bytes stripped", s.Procs)
+	}
+	if s.Host.Name != "h[2J" {
+		t.Fatalf("Host.Name = %q, want control bytes stripped", s.Host.Name)
+	}
 }
 
 // hintAdapter records the FetchHint per endpoint to pin the collector's

@@ -34,12 +34,15 @@ func New(name string, vendor gpu.Vendor, scanner procs.Scanner, adapters []llm.A
 		adapters: adapters, static: staticEndpoints, agentVersion: agentVersion}
 }
 
+// Init records the hostname and brings up the GPU vendor. The hostname is
+// taken first so a host whose GPU library fails to initialise still reports
+// it (the driver version stays empty).
 func (c *Collector) Init() error {
+	c.hostname, _ = os.Hostname()
 	if err := c.vendor.Init(); err != nil {
 		return err
 	}
 	c.driver, _ = c.vendor.DriverVersion()
-	c.hostname, _ = os.Hostname()
 	return nil
 }
 
@@ -52,10 +55,13 @@ func (c *Collector) Collect(ctx context.Context) model.Snapshot {
 		Timestamp: time.Now().UTC(),
 	}
 
+	// A failed GPU sample (library never initialised, transient NVML error)
+	// degrades the tick to "no GPUs" but must not hide the process table or
+	// the LLM servers: the rest of the snapshot is still useful.
 	devs, gpuProcs, err := c.vendor.Sample()
 	if err != nil {
 		s.Errors = append(s.Errors, fmt.Sprintf("gpu sample: %v", err))
-		return s
+		devs, gpuProcs = nil, nil
 	}
 
 	table, err := c.scanner.Procs()
@@ -158,5 +164,9 @@ func (c *Collector) Collect(ctx context.Context) model.Snapshot {
 		g.LLMUtilPct = u
 		s.GPUs[i] = g
 	}
+	// Model aliases, comm names, GPU names and endpoints all originate
+	// outside llmtop; strip control bytes before anything downstream keys
+	// on or renders them.
+	s.Sanitize()
 	return s
 }
