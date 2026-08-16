@@ -160,10 +160,18 @@ func getJSON(ctx context.Context, hc *http.Client, url, token string, v any) err
 	return json.Unmarshal(body, v)
 }
 
+// fetchHistory and fetchSnapshot sanitize what they decode: a remote agent
+// is a trust boundary, and its strings go straight to the terminal.
+
 func fetchHistory(ctx context.Context, hc *http.Client, base, token string, since int64) ([]model.Snapshot, error) {
 	var snaps []model.Snapshot
-	err := getJSON(ctx, hc, fmt.Sprintf("%s/api/v1/history?since=%d", base, since), token, &snaps)
-	return snaps, err
+	if err := getJSON(ctx, hc, fmt.Sprintf("%s/api/v1/history?since=%d", base, since), token, &snaps); err != nil {
+		return nil, err
+	}
+	for i := range snaps {
+		snaps[i].Sanitize()
+	}
+	return snaps, nil
 }
 
 func fetchSnapshot(ctx context.Context, hc *http.Client, base, token string) (*model.Snapshot, error) {
@@ -171,5 +179,6 @@ func fetchSnapshot(ctx context.Context, hc *http.Client, base, token string) (*m
 	if err := getJSON(ctx, hc, base+"/api/v1/snapshot", token, &snap); err != nil {
 		return nil, err
 	}
+	snap.Sanitize()
 	return &snap, nil
 }

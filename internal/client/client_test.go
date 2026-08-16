@@ -117,6 +117,48 @@ func TestStartRemoteBackfillWedgeFallsBackToLive(t *testing.T) {
 	}
 }
 
+// TestStartRemoteSanitizesDecodedSnapshots pins the trust boundary: strings
+// from a remote agent (backfill and live paths alike) must reach the TUI
+// with control bytes already stripped.
+func TestStartRemoteSanitizesDecodedSnapshots(t *testing.T) {
+	dirty := model.Snapshot{
+		Host:      model.HostInfo{Name: "rem", Hostname: "alpha\x1b[2J"},
+		Timestamp: time.Unix(1751600000, 0).UTC(),
+		Servers:   []model.LLMServer{{Kind: "llama.cpp", Endpoint: "http://127.0.0.1:8080\r\n", Model: "\x1b[31mm", Status: model.StatusOK}},
+		Errors:    []string{"gpu sample: boom\x1b[31m\nlost"},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/history", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]model.Snapshot{dirty})
+	})
+	mux.HandleFunc("/api/v1/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		live := dirty
+		live.Timestamp = dirty.Timestamp.Add(time.Second)
+		_ = json.NewEncoder(w).Encode(live)
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := make(chan Update, 64)
+	StartRemote(ctx, "rem", ts.URL, "", 10*time.Millisecond, ch)
+
+	for _, path := range []string{"backfill", "live"} {
+		u := recv(t, ch, 5*time.Second)
+		if u.Err != nil || u.Snapshot == nil {
+			t.Fatalf("%s: want snapshot update, got %+v", path, u)
+		}
+		s := u.Snapshot
+		if s.Host.Hostname != "alpha[2J" || s.Servers[0].Endpoint != "http://127.0.0.1:8080" ||
+			s.Servers[0].Model != "[31mm" || s.Errors[0] != "gpu sample: boom[31mlost" {
+			t.Fatalf("%s: control bytes survived decode: %+v", path, s)
+		}
+	}
+}
+
 func TestStartRemoteBadToken(t *testing.T) {
 	col := collector.New("rem", gpu.NewFake(1), &procs.Fake{}, nil, nil, "t")
 	_ = col.Init()

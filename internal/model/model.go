@@ -2,7 +2,11 @@
 // client, and TUI. The agent serializes Snapshot to JSON verbatim.
 package model
 
-import "time"
+import (
+	"strings"
+	"time"
+	"unicode"
+)
 
 type HostInfo struct {
 	Name          string `json:"name"`     // config name (display)
@@ -61,7 +65,7 @@ type LLMServer struct {
 	Endpoint   string `json:"endpoint"` // http://host:port
 	PID        int32  `json:"pid,omitempty"`
 	Role       string `json:"role,omitempty"` // "router" for llama.cpp router mode
-	Status     string `json:"status"`         // StatusOK | StatusLoading | StatusUnreachable
+	Status     string `json:"status"`         // StatusOK | StatusLoading | StatusUnreachable | StatusSleeping
 	Model      string `json:"model"`          // alias, else basename(model_path)
 	CtxSize    int    `json:"ctx_size"`
 	SlotsTotal int    `json:"slots_total"`
@@ -90,4 +94,51 @@ type Snapshot struct {
 	Procs     []GPUProc   `json:"procs"`
 	Servers   []LLMServer `json:"servers"`
 	Errors    []string    `json:"errors,omitempty"` // non-fatal collection errors
+}
+
+// CleanString returns s with control characters (Unicode Cc: U+0000..U+001F
+// and U+007F..U+009F, so newlines, tabs and ESC included) removed. Strings
+// that reach the terminal come from untrusted places — another process's
+// argv, a server's /props, a remote agent — and must not be able to carry
+// escape sequences or line breaks into the display. Returns s itself when
+// there is nothing to remove.
+func CleanString(s string) string {
+	if strings.IndexFunc(s, unicode.IsControl) < 0 {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// Sanitize runs CleanString over every free-form string in the snapshot.
+// Collectors call it before handing a snapshot on, and clients call it right
+// after decoding one from a remote agent, so downstream code (including map
+// keys derived from Endpoint) only ever sees clean values.
+func (s *Snapshot) Sanitize() {
+	s.Host.Name = CleanString(s.Host.Name)
+	s.Host.Hostname = CleanString(s.Host.Hostname)
+	s.Host.DriverVersion = CleanString(s.Host.DriverVersion)
+	s.Host.AgentVersion = CleanString(s.Host.AgentVersion)
+	for i := range s.GPUs {
+		s.GPUs[i].UUID = CleanString(s.GPUs[i].UUID)
+		s.GPUs[i].Name = CleanString(s.GPUs[i].Name)
+	}
+	for i := range s.Procs {
+		s.Procs[i].Name = CleanString(s.Procs[i].Name)
+	}
+	for i := range s.Servers {
+		srv := &s.Servers[i]
+		srv.Kind = CleanString(srv.Kind)
+		srv.Endpoint = CleanString(srv.Endpoint)
+		srv.Role = CleanString(srv.Role)
+		srv.Status = CleanString(srv.Status)
+		srv.Model = CleanString(srv.Model)
+	}
+	for i := range s.Errors {
+		s.Errors[i] = CleanString(s.Errors[i])
+	}
 }
