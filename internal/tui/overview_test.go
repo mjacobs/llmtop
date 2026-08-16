@@ -305,3 +305,28 @@ func TestHostStateApplyErrKeepsStaleSnap(t *testing.T) {
 		t.Errorf("ErrMsg = %q, want %q", h.ErrMsg, "boom")
 	}
 }
+
+// TestRenderOverviewZeroGPUHostFitsHeight pins that a host with no GPU
+// panels but many host-level servers and errors — a driverless machine
+// listing its llama.cpp servers — never renders past the height budget.
+func TestRenderOverviewZeroGPUHostFitsHeight(t *testing.T) {
+	h := NewHostState("local")
+	var servers []model.LLMServer
+	for i := 0; i < 6; i++ {
+		servers = append(servers, model.LLMServer{
+			Kind: "llama.cpp", Endpoint: "http://127.0.0.1:808" + string(rune('0'+i)),
+			Status: model.StatusOK, Model: "m",
+		})
+	}
+	h.Apply(client.Update{Host: "local", Snapshot: &model.Snapshot{
+		Host: model.HostInfo{Name: "local"}, Timestamp: time.Unix(1_700_000_002, 0),
+		Servers: servers,
+		Errors:  []string{"gpu sample: nvml init: no NVIDIA driver found", "proc scan: boom"},
+	}})
+	for _, size := range [][2]int{{100, 8}, {100, 12}, {80, 5}, {200, 6}, {120, 40}} {
+		out := RenderOverview([]*HostState{h}, 0, size[0], size[1], DefaultTheme())
+		if got := len(strings.Split(out, "\n")); got > size[1] {
+			t.Errorf("%dx%d: rendered %d lines > height", size[0], size[1], got)
+		}
+	}
+}

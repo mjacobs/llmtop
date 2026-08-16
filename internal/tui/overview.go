@@ -24,6 +24,26 @@ const sparkWidth = 12
 // order; the selected panel gets the active border (in COMPACT, its host
 // panel does).
 func RenderOverview(hosts []*HostState, selected int, width, height int, th Theme) string {
+	return clampHeight(renderOverview(hosts, selected, width, height, th), height)
+}
+
+// clampHeight drops any lines beyond height. The solver sizes charts and
+// panels to the budget, but host strips and the compact tier render their
+// content at natural height, so a host with many host-level servers or
+// errors (a driverless machine listing its llama.cpp servers, say) could
+// otherwise push the frame past the terminal and into the footer.
+func clampHeight(s string, height int) string {
+	if height <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= height {
+		return s
+	}
+	return strings.Join(lines[:height], "\n")
+}
+
+func renderOverview(hosts []*HostState, selected int, width, height int, th Theme) string {
 	hrs := buildHostRenders(hosts)
 	lay := solveLayout(hrs, width, height)
 	if lay.tier == tierCompact {
