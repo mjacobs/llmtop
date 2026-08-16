@@ -102,38 +102,14 @@ func startSources(ctx context.Context, cfg config.Config, connects []string, dem
 }
 
 // startLocalHost builds a collector for a local host config entry. If the
-// GPU vendor fails to initialize (no NVML, no driver, ...), the host still
-// gets a source: a goroutine that reports the error every tick so the panel
-// renders as unreachable instead of the whole program refusing to start.
+// GPU vendor fails to initialize (no NVML, no driver, ...), the collector
+// is started anyway: every snapshot then carries the GPU error in its Errors
+// (rendered in the host strip) while processes and llama.cpp servers are
+// still reported — the same degraded mode `llmtop agent` runs in.
 func startLocalHost(ctx context.Context, h config.HostConfig, updates chan<- client.Update, interval time.Duration, version string) {
 	col := collector.New(h.Name, gpu.NewNVML(), procs.NewProcFS(), []llm.Adapter{llm.NewLlamaCpp()}, endpoints(h), version)
-	if err := col.Init(); err != nil {
-		startErrSource(ctx, h.Name, err, interval, updates)
-		return
-	}
+	_ = col.Init() // a failed GPU init is reported per tick via Snapshot.Errors
 	client.StartLocal(ctx, h.Name, col, interval, updates)
-}
-
-// startErrSource repeatedly reports a fixed error for a host whose
-// collector failed to initialize, at the same cadence a healthy source
-// would report snapshots.
-func startErrSource(ctx context.Context, name string, err error, interval time.Duration, updates chan<- client.Update) {
-	go func() {
-		t := time.NewTicker(interval)
-		defer t.Stop()
-		for {
-			select {
-			case updates <- client.Update{Host: name, Err: err}:
-			case <-ctx.Done():
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-			}
-		}
-	}()
 }
 
 // endpoints extracts static LLM endpoint URLs from a host's config.
