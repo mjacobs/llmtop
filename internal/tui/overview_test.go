@@ -23,12 +23,41 @@ func TestRenderOverviewContent(t *testing.T) {
 		"GPU0",             // gpu panel title
 		"qwen36-35b-mtp",   // server model
 		"t/s",              // throughput
-		"metrics disabled", // degraded server hint (grid tiers use panel.go's serverLine2 wording, not legacy serverLine's "(--metrics off)")
+		"metrics disabled", // degraded server hint (grid tiers use panel.go's serverLine2 wording, not the compact tier's "(--metrics off)")
 		"unreachable",      // dead host strip
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("overview missing %q\n%s", want, out)
 		}
+	}
+}
+
+// TestServerLineStatusHints pins the compact-tier row for each nil-Metrics
+// status: only a reachable, resident server gets the "--metrics off" hint;
+// an unreachable or loading one already carries a status tag that explains
+// the missing stats.
+func TestServerLineStatusHints(t *testing.T) {
+	th := DefaultTheme()
+	for _, tc := range []struct {
+		name    string
+		status  string
+		want    string
+		notWant string
+	}{
+		{name: "ok", status: model.StatusOK, want: "(--metrics off)"},
+		{name: "unreachable", status: model.StatusUnreachable, want: "unreachable", notWant: "--metrics"},
+		{name: "loading", status: model.StatusLoading, want: "loading", notWant: "--metrics"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := &model.LLMServer{Kind: "llama.cpp", Endpoint: "http://h:8080", Status: tc.status}
+			got := serverLine(srv, th, 100)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("serverLine = %q, want it to contain %q", got, tc.want)
+			}
+			if tc.notWant != "" && strings.Contains(got, tc.notWant) {
+				t.Errorf("serverLine = %q, must not contain %q", got, tc.notWant)
+			}
+		})
 	}
 }
 
@@ -139,7 +168,7 @@ func TestRenderOverviewCompactParity(t *testing.T) {
 	got := RenderOverview(hosts, 0, 100, 20, DefaultTheme())
 	want := renderCompact(hosts, 0, 100, DefaultTheme())
 	if got != want {
-		t.Errorf("COMPACT tier must match the legacy overview\ngot:\n%s\nwant:\n%s", got, want)
+		t.Errorf("COMPACT tier must match renderCompact\ngot:\n%s\nwant:\n%s", got, want)
 	}
 	// Selecting alpha's second panel (flat index 1) still highlights alpha.
 	got = RenderOverview(hosts, 1, 100, 20, DefaultTheme())
@@ -236,8 +265,8 @@ func TestHostStateApplyDedupesOnTimestamp(t *testing.T) {
 }
 
 // TestHostStateApplyRingFamilies checks that Apply pushes into all five ring
-// families the brief specifies: UtilHist/MemHist/LLMUtilHist/LLMMemHist per
-// GPU, and GenTPSHist per server endpoint (skipping nil Metrics).
+// families: UtilHist/MemHist/LLMUtilHist/LLMMemHist per GPU, and GenTPSHist
+// per server endpoint (skipping nil Metrics).
 func TestHostStateApplyRingFamilies(t *testing.T) {
 	h := SampleHostStates()[0] // "alpha": 2 GPUs, 2 servers (one metrics-off)
 	for _, idx := range []int{0, 1} {

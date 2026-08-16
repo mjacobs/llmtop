@@ -71,7 +71,7 @@ func TestBuildHostRenders(t *testing.T) {
 	if len(hrs) != len(hosts) {
 		t.Fatalf("hostRenders = %d, want %d", len(hrs), len(hosts))
 	}
-	// alpha: after testdata gains server PIDs, each server maps to its GPU.
+	// alpha: the fixture's server PIDs match its procs, so each maps to its GPU.
 	alpha := hrs[0]
 	if len(alpha.byGPU[0]) != 1 || len(alpha.byGPU[1]) != 1 {
 		t.Errorf("alpha mapping = GPU0:%d GPU1:%d, want 1 and 1",
@@ -433,8 +433,9 @@ func TestServerLine2EstimatedMarker(t *testing.T) {
 	}
 }
 
-// serverBlockMatrix covers the three server shapes serverBlockLines /
-// serverBlockLineCount must agree on: metrics-bearing, metrics-off, router.
+// serverBlockMatrix covers the server shapes serverBlockLines /
+// serverBlockLineCount must agree on: metrics-bearing, metrics-off, router,
+// and the nil-Metrics unreachable/loading/sleeping statuses.
 func serverBlockMatrix() []*model.LLMServer {
 	return []*model.LLMServer{
 		{
@@ -449,6 +450,9 @@ func serverBlockMatrix() []*model.LLMServer {
 			Endpoint: "http://h:8082", Role: "router",
 			Metrics: &model.LLMMetrics{PromptTPS: 1, PredictedTPS: 2, KVCacheUsage: -1},
 		},
+		{Endpoint: "http://h:8083", Status: model.StatusUnreachable},
+		{Endpoint: "http://h:8084", Status: model.StatusLoading},
+		{Endpoint: "http://h:8085", Status: model.StatusSleeping},
 	}
 }
 
@@ -523,5 +527,48 @@ func TestServerLine2Sleeping(t *testing.T) {
 	}
 	if strings.Contains(got, "metrics disabled") {
 		t.Fatalf("serverLine2 = %q, must not claim metrics disabled while sleeping", got)
+	}
+}
+
+// TestServerLine2StatusHints pins which detail line each nil-Metrics status
+// gets: only a reachable, resident server is told to enable --metrics; an
+// unreachable or loading one has no metrics to disable and gets a status
+// note instead.
+func TestServerLine2StatusHints(t *testing.T) {
+	th := DefaultTheme()
+	for _, tc := range []struct {
+		name    string
+		status  string
+		want    string
+		notWant string
+	}{
+		{name: "ok", status: model.StatusOK, want: "metrics disabled — start llama-server with --metrics"},
+		{name: "unreachable", status: model.StatusUnreachable, want: "unreachable — no response from server", notWant: "--metrics"},
+		{name: "loading", status: model.StatusLoading, want: "loading — model not resident yet", notWant: "--metrics"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := &model.LLMServer{Kind: "llama.cpp", Endpoint: "http://h:8080", Status: tc.status}
+			got := serverLine2(srv, th)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("serverLine2 = %q, want it to contain %q", got, tc.want)
+			}
+			if tc.notWant != "" && strings.Contains(got, tc.notWant) {
+				t.Errorf("serverLine2 = %q, must not contain %q", got, tc.notWant)
+			}
+		})
+	}
+}
+
+// TestRenderHostStripLoadingServerHint checks the fixture end to end: bravo's
+// host-level server is loading, so its block explains that rather than
+// telling the user to restart with --metrics.
+func TestRenderHostStripLoadingServerHint(t *testing.T) {
+	hrs := buildHostRenders(SampleHostStates())
+	out := renderHostStrip(hrs[1], 100, 0, DefaultTheme())
+	if !strings.Contains(out, "loading — model not resident yet") {
+		t.Errorf("loading server block missing its status note:\n%s", out)
+	}
+	if strings.Contains(out, "--metrics") {
+		t.Errorf("loading server must not be told to enable --metrics:\n%s", out)
 	}
 }

@@ -19,9 +19,10 @@ const sparkWidth = 12
 // host shares one row, each host's strip spanning its own columns; otherwise
 // hosts stack, each wrapping its GPUs into one or two columns. A per-frame
 // solver picks the densest tier that fits the body height, degrading to the
-// legacy compact rows when space is tight. selected is a flat GPU-panel
-// index in render order; the selected panel gets the active border (in
-// COMPACT, its host panel does).
+// low-density COMPACT fallback (one bordered panel per host with compact
+// rows) when space is tight. selected is a flat GPU-panel index in render
+// order; the selected panel gets the active border (in COMPACT, its host
+// panel does).
 func RenderOverview(hosts []*HostState, selected int, width, height int, th Theme) string {
 	hrs := buildHostRenders(hosts)
 	lay := solveLayout(hrs, width, height)
@@ -167,8 +168,8 @@ func hostOfPanel(hrs []hostRender, panel int) int {
 	return 0
 }
 
-// renderCompact is the COMPACT tier: today's legacy overview — one bordered
-// panel per host with one line per GPU and server.
+// renderCompact is the COMPACT tier, the low-density fallback: one bordered
+// panel per host with one line per GPU and server, no charts.
 func renderCompact(hosts []*HostState, selectedHost, width int, th Theme) string {
 	panels := make([]string, 0, len(hosts))
 	for i, h := range hosts {
@@ -281,7 +282,9 @@ func gpuLine(h *HostState, idx int, th Theme, width int) string {
 
 // serverLine renders one LLM server row: a colored bullet, model (or
 // endpoint when no alias is set), an error tag when unreachable/loading, and
-// either generation stats, a "router" tag, or a "metrics off" hint.
+// either generation stats, a "router" tag, or a "metrics off" hint. An
+// unreachable or loading server has no Metrics either, but its status tag
+// already explains why, so it gets no "--metrics off" hint.
 func serverLine(srv *model.LLMServer, th Theme, width int) string {
 	label := srv.Model
 	if label == "" {
@@ -299,6 +302,8 @@ func serverLine(srv *model.LLMServer, th Theme, width int) string {
 	switch {
 	case srv.Role == "router":
 		line += " " + th.Dim.Render("router")
+	case srv.Status == model.StatusUnreachable, srv.Status == model.StatusLoading:
+		// status tag above says it all
 	case srv.Status == model.StatusSleeping:
 		line += " " + th.Dim.Render("sleeping")
 	case srv.Metrics != nil:

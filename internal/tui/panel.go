@@ -124,12 +124,19 @@ func serverLine1(srv *model.LLMServer, th Theme) string {
 	return th.LLM.Render("● ") + strings.Join([]string{label, srv.Kind, srv.Endpoint, srv.Status}, "  ")
 }
 
-// serverLine2 renders a server's detail line: generation stats, a "metrics
-// disabled" hint, or a router tag — indented two spaces under line 1.
+// serverLine2 renders a server's detail line: generation stats, a status
+// note (unreachable/loading/sleeping), a "metrics disabled" hint, or a
+// router tag — indented two spaces under line 1. The status arms come
+// before the Metrics arm: an unreachable or loading server has no Metrics
+// either, and must not be told to restart with --metrics.
 func serverLine2(srv *model.LLMServer, th Theme) string {
 	switch {
 	case srv.Role == "router":
 		return "  " + th.Dim.Render("router — spawns model instances on demand")
+	case srv.Status == model.StatusUnreachable:
+		return "  " + th.Err.Render("unreachable — no response from server")
+	case srv.Status == model.StatusLoading:
+		return "  " + th.Dim.Render("loading — model not resident yet")
 	case srv.Status == model.StatusSleeping:
 		return "  " + th.Dim.Render("sleeping — model unloaded until next request")
 	case srv.Metrics != nil:
