@@ -101,7 +101,7 @@ func TestRenderOverviewOneRow(t *testing.T) {
 	if stripRow < 0 || panelRow < 0 || deadRow < 0 {
 		t.Fatalf("missing strip/panel/dead-host rows (%d/%d/%d)\n%s", stripRow, panelRow, deadRow, out)
 	}
-	if !(stripRow < panelRow && panelRow < deadRow) {
+	if stripRow >= panelRow || panelRow >= deadRow {
 		t.Errorf("want strip row above panels above the GPU-less host, got %d/%d/%d\n%s",
 			stripRow, panelRow, deadRow, out)
 	}
