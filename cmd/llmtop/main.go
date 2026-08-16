@@ -73,6 +73,20 @@ func main() {
 	}
 }
 
+const rootUsage = `Usage:
+  llmtop [flags]          monitor GPUs and llama.cpp servers (TUI)
+  llmtop agent [flags]    serve this host's telemetry over HTTP
+  llmtop version          print the version
+
+Flags:
+`
+
+const agentUsage = `Usage:
+  llmtop agent [flags]    serve this host's telemetry over HTTP
+
+Flags:
+`
+
 type tuiOpts struct {
 	cfgPath  string
 	demo     bool
@@ -86,13 +100,7 @@ func tuiFlags() (*flag.FlagSet, *tuiOpts) {
 	var o tuiOpts
 	fs := flag.NewFlagSet("llmtop", flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Fprint(fs.Output(), `Usage:
-  llmtop [flags]          monitor GPUs and llama.cpp servers (TUI)
-  llmtop agent [flags]    serve this host's telemetry over HTTP
-  llmtop version          print the version
-
-Flags:
-`)
+		fmt.Fprint(fs.Output(), rootUsage) //nolint:errcheck // usage text; nothing to do on failure
 		fs.PrintDefaults()
 	}
 	fs.StringVar(&o.cfgPath, "config", config.DefaultPath(), "config file path")
@@ -150,11 +158,7 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 func runAgent(args []string) error {
 	fs := flag.NewFlagSet("llmtop agent", flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Fprint(fs.Output(), `Usage:
-  llmtop agent [flags]    serve this host's telemetry over HTTP
-
-Flags:
-`)
+		fmt.Fprint(fs.Output(), agentUsage) //nolint:errcheck // usage text; nothing to do on failure
 		fs.PrintDefaults()
 	}
 	cfgPath := fs.String("config", config.DefaultPath(), "config file path")
