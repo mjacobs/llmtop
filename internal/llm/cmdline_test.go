@@ -24,6 +24,8 @@ func TestEndpointFromCmdline(t *testing.T) {
 		{"all defaults", []string{"/usr/bin/llama-server", "-m", "x.gguf"}, "http://127.0.0.1:8080", true},
 		{"equals form, local interface address", []string{"llama-server", "--host=192.0.2.5", "--port=9000"}, "http://192.0.2.5:9000", true},
 		{"localhost", []string{"llama-server", "--host", "localhost", "--port", "8082"}, "http://localhost:8082", true},
+		{"LOCALHOST is case-insensitive", []string{"llama-server", "--host", "LOCALHOST", "--port", "8082"}, "http://localhost:8082", true},
+		{"ipv6 ::0 wildcard", []string{"llama-server", "--host=::0", "--port=8083"}, "http://127.0.0.1:8083", true},
 		{"foreign address rejected", []string{"llama-server", "--host=198.51.100.7", "--port=9000"}, "", false},
 		{"ipv6 wildcard", []string{"llama-server", "--host", "::"}, "http://127.0.0.1:8080", true},
 		{"ipv6 wildcard equals form", []string{"llama-server", "--host=::"}, "http://127.0.0.1:8080", true},

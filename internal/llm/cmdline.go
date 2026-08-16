@@ -46,15 +46,16 @@ func EndpointFromCmdline(argv []string) (string, bool) {
 			}
 		}
 	}
-	// Wildcard binds are reachable via loopback from the same host.
-	if host == "0.0.0.0" || host == "::" || host == "" {
+	// Wildcard binds (0.0.0.0, ::, ::0, "") are reachable via loopback from
+	// the same host.
+	ip := net.ParseIP(host)
+	switch {
+	case host == "" || (ip != nil && ip.IsUnspecified()):
 		host = "127.0.0.1"
-	}
-	if host != "localhost" {
-		ip := net.ParseIP(host)
-		if ip == nil || (!ip.IsLoopback() && !isLocalIP(ip)) {
-			return "", false
-		}
+	case strings.EqualFold(host, "localhost"):
+		host = "localhost"
+	case ip == nil || (!ip.IsLoopback() && !isLocalIP(ip)):
+		return "", false
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
