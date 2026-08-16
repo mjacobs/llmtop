@@ -1,0 +1,42 @@
+name: Bug report
+description: Something renders wrong, crashes, or a server/GPU is missing
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: llmtop version
+      description: Output of `llmtop version`
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Distribution and NVIDIA driver
+      placeholder: Fedora 44, driver 580.65.06, RTX 4090
+    validations:
+      required: true
+  - type: input
+    id: llama
+    attributes:
+      label: llama-server command line (if relevant)
+      placeholder: llama-server -m model.gguf --port 8080 --metrics --sleep-idle-seconds 300
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal emulator and font
+      placeholder: kitty 0.40, JetBrains Mono
+  - type: dropdown
+    id: demo
+    attributes:
+      label: Does `llmtop --demo` render correctly?
+      options: ["yes", "no", "didn't try"]
+    validations:
+      required: true
