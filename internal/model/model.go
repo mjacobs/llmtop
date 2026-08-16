@@ -129,6 +129,13 @@ func (s *Snapshot) Sanitize() {
 	}
 	for i := range s.Procs {
 		s.Procs[i].Name = CleanString(s.Procs[i].Name)
+		// Class is an enum that gets rendered verbatim; anything a remote
+		// agent sends outside the known values becomes "other".
+		switch s.Procs[i].Class {
+		case ProcLLM, ProcGraphics, ProcOther:
+		default:
+			s.Procs[i].Class = ProcOther
+		}
 	}
 	for i := range s.Servers {
 		srv := &s.Servers[i]

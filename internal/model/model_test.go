@@ -82,7 +82,7 @@ func TestSnapshotSanitize(t *testing.T) {
 	s := Snapshot{
 		Host:  HostInfo{Name: "alpha" + bad, Hostname: bad + "alpha", DriverVersion: "580" + bad + ".65", AgentVersion: bad + "0.1.0" + bad},
 		GPUs:  []GPU{{UUID: "GPU-" + bad + "abc", Name: "NVIDIA" + bad}, {UUID: bad, Name: bad}},
-		Procs: []GPUProc{{PID: 1, Name: "llama" + bad + "-server"}, {PID: 2, Name: bad}},
+		Procs: []GPUProc{{PID: 1, Name: "llama" + bad + "-server", Class: ProcLLM}, {PID: 2, Name: bad, Class: ProcClass("evil" + bad)}},
 		Servers: []LLMServer{
 			{Kind: "llama.cpp" + bad, Endpoint: "http://127.0.0.1:8080" + bad, Role: bad + "router", Status: StatusOK + bad, Model: bad + "m" + bad},
 			{Kind: bad, Endpoint: bad, Role: bad, Status: bad, Model: bad},
@@ -93,7 +93,7 @@ func TestSnapshotSanitize(t *testing.T) {
 	want := Snapshot{
 		Host:  HostInfo{Name: "alpha", Hostname: "alpha", DriverVersion: "580.65", AgentVersion: "0.1.0"},
 		GPUs:  []GPU{{UUID: "GPU-abc", Name: "NVIDIA"}, {UUID: "", Name: ""}},
-		Procs: []GPUProc{{PID: 1, Name: "llama-server"}, {PID: 2, Name: ""}},
+		Procs: []GPUProc{{PID: 1, Name: "llama-server", Class: ProcLLM}, {PID: 2, Name: "", Class: ProcOther}},
 		Servers: []LLMServer{
 			{Kind: "llama.cpp", Endpoint: "http://127.0.0.1:8080", Role: "router", Status: StatusOK, Model: "m"},
 			{},
