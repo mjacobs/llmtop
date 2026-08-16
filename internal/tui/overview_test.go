@@ -329,4 +329,10 @@ func TestRenderOverviewZeroGPUHostFitsHeight(t *testing.T) {
 			t.Errorf("%dx%d: rendered %d lines > height", size[0], size[1], got)
 		}
 	}
+	// No body budget at all (terminal shorter than header+footer): no body.
+	for _, height := range []int{0, -3} {
+		if out := RenderOverview([]*HostState{h}, 0, 100, height, DefaultTheme()); out != "" {
+			t.Errorf("height %d: want empty body, got %d lines", height, len(strings.Split(out, "\n")))
+		}
+	}
 }

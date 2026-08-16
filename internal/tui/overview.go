@@ -34,7 +34,7 @@ func RenderOverview(hosts []*HostState, selected int, width, height int, th Them
 // otherwise push the frame past the terminal and into the footer.
 func clampHeight(s string, height int) string {
 	if height <= 0 {
-		return s
+		return "" // no room for a body at all (terminal shorter than the chrome)
 	}
 	lines := strings.Split(s, "\n")
 	if len(lines) <= height {
