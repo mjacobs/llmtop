@@ -11,12 +11,18 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The go.mod floor and the current stable release.
+        go: ["1.24", "stable"]
+    name: check (go ${{ matrix.go }})
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go }}
 
       # Install golangci-lint only; `make check` runs it so CI and a local
       # `make check` execute the exact same gate.
