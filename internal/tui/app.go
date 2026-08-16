@@ -160,7 +160,15 @@ func (a *App) View() string {
 
 	body := RenderOverview(a.hosts, a.selected, a.width, a.height-1-footerLines, a.theme)
 
-	return strings.Join([]string{header, body, footer}, "\n")
+	// An empty body (no height budget left) must not cost a line of its
+	// own, and the whole frame never exceeds the terminal — even when the
+	// expanded help alone is taller than it.
+	parts := []string{header}
+	if body != "" {
+		parts = append(parts, body)
+	}
+	parts = append(parts, footer)
+	return clampHeight(strings.Join(parts, "\n"), a.height)
 }
 
 // fmtRefresh renders the refresh interval as seconds with one decimal place

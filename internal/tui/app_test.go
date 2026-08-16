@@ -160,3 +160,40 @@ func TestViewRenders(t *testing.T) {
 		t.Fatalf("footer must not advertise a drill-down mode (there is none):\n%s", out)
 	}
 }
+
+// TestViewFitsTinyTerminal pins that the frame never exceeds the terminal
+// height: with no room for a body the header joins the footer directly (no
+// blank line), and an expanded help taller than the terminal is clamped.
+func TestViewFitsTinyTerminal(t *testing.T) {
+	a, ch := testApp()
+	ch <- client.Update{Host: "h1", Snapshot: &model.Snapshot{
+		Timestamp: time.Unix(1_700_000_000, 0),
+		GPUs:      []model.GPU{{Index: 0, Name: "GPU", MemTotal: 1}},
+	}}
+	m, _ := a.Update(a.readUpdate()())
+	a = m.(*App)
+
+	for _, tc := range []struct {
+		name   string
+		height int
+		help   bool
+	}{
+		{"header+footer only", 2, false},
+		{"one line short of a body", 3, false},
+		{"help taller than terminal", 3, true},
+		{"single line", 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: tc.height})
+			a = m.(*App)
+			a.showHelp = tc.help
+			out := a.View()
+			if got := len(strings.Split(out, "\n")); got > tc.height {
+				t.Fatalf("View rendered %d lines > height %d:\n%s", got, tc.height, out)
+			}
+			if !tc.help && tc.height == 2 && strings.Contains(out, "\n\n") {
+				t.Fatalf("empty body must not leave a blank line:\n%q", out)
+			}
+		})
+	}
+}
