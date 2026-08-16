@@ -18,8 +18,12 @@ export CGO_ENABLED
 # to the short commit hash; packagers can override with `make VERSION=1.2.3`.
 # Binaries built with plain `go build`/`go install` fall back to the module
 # version Go records in the build info instead.
+#
+# The value reaches the recipe through the environment ($$VERSION) rather than
+# by make expansion, so a tag name containing shell syntax cannot run anything.
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
-LDFLAGS := -X main.version=$(VERSION)
+export VERSION
+LDFLAGS := -X main.version=$$VERSION
 
 # Passthrough knobs: `make run ARGS=--demo`, `make test GOFLAGS=-count=1`.
 GOFLAGS ?=
