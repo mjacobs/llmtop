@@ -85,9 +85,11 @@ llmtop --connect remote-host:9832
 ```
 
 To run the agent permanently as a systemd user service, install `llmtop` on
-that host and install the included unit. If you installed to a custom
-`XDG_BIN_HOME`, change `ExecStart` in the copied unit to that absolute path
-before enabling it:
+that host and install the included unit. The unit expects the binary at
+`~/.local/bin/llmtop` (where `make install` puts it); if you used a custom
+`XDG_BIN_HOME` or `go install` (which puts it in `$(go env GOPATH)/bin`),
+change `ExecStart` in the copied unit to that absolute path before enabling
+it:
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -131,7 +133,8 @@ TLS-terminating reverse proxy is `addr = "https://gpu.example.com"`.
 
 Uninstalling an agent host: `systemctl --user disable --now llmtop-agent`,
 remove `~/.config/systemd/user/llmtop-agent.service`, then `make uninstall`
-(and `rm -rf ~/.config/llmtop` if you want the config gone too).
+(or `rm "$(go env GOPATH)/bin/llmtop"` for a `go install` build), and
+`rm -rf ~/.config/llmtop` if you want the config gone too.
 
 ## Commands and flags
 
@@ -241,9 +244,12 @@ declare its `llm_endpoints` in the agent's own config on that machine instead.
   the agent's own config when it's a remote machine — so `llmtop` polls its
   HTTP API directly. **Caveat:** static endpoints are polled unconditionally,
   because without the command line `llmtop` cannot tell that idle sleep is
-  enabled — a static `--sleep-idle-seconds` server will be kept awake. Prefer
-  making the process visible instead (`docker run --pid=host`, Kubernetes
-  `hostPID: true`), which arms the idle-sleep handling automatically.
+  enabled — a static `--sleep-idle-seconds` server will be kept awake. If you
+  need idle sleep for a containerized server, either don't enable it there,
+  or make the process visible to the collector (`docker run --pid=host`,
+  Kubernetes `hostPID: true`) so discovery sees the command line — noting that
+  sharing the host PID namespace is a real reduction in container isolation,
+  so weigh it like any other security tradeoff.
 - **`--api-key` servers are not supported yet.** llama.cpp exempts `/health`
   from its API-key check, so such a server appears as `ok` but with no model
   name and a spurious `metrics disabled` hint, because `/props` and `/metrics`
@@ -261,12 +267,16 @@ with no token configured the API is **unauthenticated** — anyone who can reach
 the port can read the host's hostname, driver version, GPU models and UUIDs,
 the PID and name of every process using a GPU, and the endpoints and model
 names of your llama.cpp servers. The agent prints a warning at startup in that
-configuration. Set a token if other machines share the network, or bind a
-specific address (`--listen 127.0.0.1:9832`, or a LAN IP). A token also
-protects against browser-based attacks such as DNS rebinding, since a web page
-cannot know it. None of this substitutes for network-level trust: do not
-expose the agent to an untrusted network without a TLS-terminating reverse
-proxy or a VPN.
+configuration.
+
+What to do about it: if only this machine needs the data, bind loopback
+(`--listen 127.0.0.1:9832`) — that is the only listen address that actually
+confines access; binding a LAN IP just picks which network can read it. For
+anything reachable from other machines, set a token; it also defeats
+browser-based tricks such as DNS rebinding, since a web page cannot know it.
+For a network you don't fully trust, add a firewall rule or VPN, or put the
+agent behind a reverse proxy that authenticates — TLS on its own only hides
+the traffic, it doesn't restrict who can read the telemetry.
 
 ### Agent API
 

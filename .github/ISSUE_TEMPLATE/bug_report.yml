@@ -27,6 +27,7 @@ body:
     id: llama
     attributes:
       label: llama-server command line (if relevant)
+      description: Redact anything private first — API keys, tokens, hostnames, and paths you don't want public (e.g. `--api-key REDACTED`).
       placeholder: llama-server -m model.gguf --port 8080 --metrics --sleep-idle-seconds 300
   - type: input
     id: terminal
