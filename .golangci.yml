@@ -1,0 +1,21 @@
+# golangci-lint v2 configuration. `make lint` / `make check` run this; CI pins
+# golangci-lint v2.12 (see .github/workflows/ci.yml), so use a v2.x locally to
+# match. The standard set (errcheck, govet, ineffassign, staticcheck, unused)
+# plus a few cheap extras; gofmt is enforced separately by `make fmt-check`.
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - gocritic
+    - misspell
+    - unconvert
+    - unparam
+  settings:
+    errcheck:
+      # Usage/help text written to a FlagSet's output — same idiom as
+      # flag.PrintDefaults, nothing sensible to do on failure.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln

@@ -112,7 +112,8 @@ func (r *RateTracker) TPS(endpoint string, now time.Time, promptTotal, predicted
 	st.promptLastV = promptTotal
 
 	// Predicted: amortized rate, ratio learning, and decode-derived estimate.
-	if predictedTotal != st.predLastV {
+	switch {
+	case predictedTotal != st.predLastV:
 		window := now.Sub(st.predAnchorT).Seconds()
 		deltaPredicted := predictedTotal - st.predAnchorV
 		res.PredictedTPS = deltaPredicted / window
@@ -130,11 +131,11 @@ func (r *RateTracker) TPS(endpoint string, now time.Time, promptTotal, predicted
 		st.predAnchorT = now
 		st.predAnchorV = predictedTotal
 		st.predAnchorDecodeV = decodeTotal
-	} else if !busy {
+	case !busy:
 		st.predAnchorT = now
 		st.predAnchorV = predictedTotal
 		st.predAnchorDecodeV = decodeTotal
-	} else {
+	default:
 		// Unchanged and busy: anchor stays, substitute the live estimate.
 		decodesPerSec := (decodeTotal - st.decodeLastV) / dt
 		res.PredictedTPS = decodesPerSec * st.ratio
