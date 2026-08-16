@@ -1,39 +1,79 @@
 # llmtop
 
-An [nvtop](https://github.com/Syllo/nvtop)-like terminal UI for monitoring GPUs
-across one or more machines, tailored for LLM inference serving. `llmtop`
-charts per-GPU utilization and memory like nvtop, and additionally surfaces
-llama.cpp serving stats (model loaded, tokens/sec, KV-cache usage, slot
-occupancy) — with a breakdown of GPU usage between LLM serving and everything
-else (compositor, browsers, other compute).
+An [nvtop](https://github.com/Syllo/nvtop)-like terminal UI for NVIDIA GPUs
+that also understands LLM serving. `llmtop` charts per-GPU utilization and
+memory like nvtop, and on top of that shows what your
+[llama.cpp](https://github.com/ggml-org/llama.cpp) servers are doing — model
+loaded, prompt and generation tokens/sec, KV-cache usage, slot occupancy — with
+GPU usage split between LLM serving and everything else (compositor,
+browsers, other compute). It watches the local machine and, through a small
+agent, any number of remote GPU boxes in the same window.
 
-*(screenshot coming soon at `docs/demo.png` — run `llmtop --demo` to see it live in the meantime)*
+![llmtop --demo: two hosts, three GPUs, llama.cpp servers with live throughput](docs/demo.png)
 
-## Install / build
+Try it without any hardware: `llmtop --demo` renders synthetic data.
 
-Requires Go 1.26+ and a C toolchain (cgo is used for the NVML bindings).
-Build and install the binary for the current user with:
+## Requirements
+
+- **Linux.** Process and llama.cpp discovery read `/proc`; the agent ships as
+  a systemd user unit. There is no macOS or Windows support.
+- **NVIDIA GPUs** with the proprietary driver installed (`libnvidia-ml.so.1`,
+  i.e. NVML). No AMD, Intel, or Apple GPU support. Runs as an unprivileged
+  user; no root needed. Only `--demo` works without a driver.
+- **llama.cpp `llama-server`** for the serving stats. The GPU-usage breakdown
+  also counts vLLM, SGLang, and Ollama processes as "LLM", but throughput,
+  KV-cache, and slot details are read from llama.cpp only.
+- **A terminal with a UTF-8 font that has braille and box-drawing glyphs**
+  (the charts are drawn with braille). True colour is recommended; the UI
+  degrades to fewer colours automatically.
+- **To build:** Go 1.24+ and a C toolchain (`gcc` or `clang`). cgo is
+  required for the NVML bindings — see below.
+
+## Install
+
+From source, into `${XDG_BIN_HOME:-$HOME/.local/bin}/llmtop`:
 
 ```bash
+git clone https://github.com/mjacobs/llmtop && cd llmtop
 make install
 ```
 
-This installs to `${XDG_BIN_HOME:-$HOME/.local/bin}/llmtop`; set
-`XDG_BIN_HOME` to override the destination. `make build` produces the binary
-in the repository without installing it. An NVIDIA driver
-(`libnvidia-ml.so`) is only required at **runtime**, not at build time — the
-binary builds fine on a machine with no GPU, and gracefully reports "no
-NVML" on one without a driver.
+Or with the Go toolchain directly (installs to `$(go env GOPATH)/bin`):
+
+```bash
+go install github.com/mjacobs/llmtop/cmd/llmtop@latest
+```
+
+Both need cgo. Go turns cgo off automatically when it cannot find a C
+compiler, and a `CGO_ENABLED=0` build fails with errors like
+`undefined: Return` from `github.com/NVIDIA/go-nvml` — if you see that,
+install `gcc` and the libc headers (`dnf install gcc glibc-devel`,
+`apt install build-essential`) and build again. The NVIDIA driver itself is
+only needed at **runtime**: the binary builds fine on a machine with no GPU.
+
+Without a working driver the local host shows as
+`unreachable: nvml init: no NVIDIA driver found …` in the TUI. `llmtop agent`
+logs the same warning and keeps serving process and llama.cpp data with no GPU
+section.
+
+`make build` produces `./llmtop` in the checkout without installing; `make
+uninstall` removes the installed binary. `make help` lists all targets.
 
 ## Quick start
 
 ```bash
-llmtop                 # monitor the local machine (auto-detected GPUs + llama.cpp servers)
-llmtop --demo          # synthetic data, no GPU or config required — good for a quick look
-llmtop --connect host:9832   # also watch one remote llmtop agent, ad hoc
+llmtop                        # monitor this machine: auto-detected GPUs + llama.cpp servers
+llmtop --demo                 # synthetic data, no GPU or config required
+llmtop --connect host:9832    # also watch one remote llmtop agent, ad hoc
+llmtop version                # print the version (also: llmtop --version)
 ```
 
-To monitor a remote machine, run the agent there and point a TUI at it:
+Selecting, pausing, and changing the refresh rate are single keys — see
+[Key bindings](#key-bindings). `?` shows them in the app.
+
+## Remote hosts
+
+Run the agent on each GPU box and point a TUI at it:
 
 ```bash
 # on the remote box
@@ -57,8 +97,11 @@ systemctl --user enable --now llmtop-agent
 
 Run `loginctl enable-linger $USER` once if the service should survive logout
 and run without an active login session. The unit does not override agent
-flags, so its listen address and optional token come from that host's
+flags: the listen address, token, and `refresh_ms` come from that host's
 `~/.config/llmtop/config.toml` (or the built-in defaults when absent).
+`refresh_ms` on the agent host sets how often it samples and how much history
+it keeps (600 samples), which is the finest resolution any connected TUI can
+see regardless of its own `+`/`-` setting.
 
 `--connect` only works against agents running **without** a token — the TUI
 has no `--token` flag. To reach an agent that requires one, declare the host
@@ -71,24 +114,40 @@ name  = "remote-host"
 addr  = "remote-host:9832"
 token = "some-shared-secret"   # must match the agent's token
 
-# remote box (or pass --token to `llmtop agent`)
+# remote box ~/.config/llmtop/config.toml
 [agent]
 token = "some-shared-secret"
 ```
 
-The config file is also how you declare hosts (local and/or remote)
-permanently — see below.
+Keep the config file private (`chmod 600`) since it holds the shared secret.
+`llmtop agent --token …` and the `LLMTOP_TOKEN` environment variable also
+work, but a token on the command line is visible to every local user in the
+process table, so treat `--token` as an ad-hoc option. Precedence is flag,
+then environment, then config file.
 
-### Flags
+`addr` and `--connect` accept a full URL, so an agent behind a
+TLS-terminating reverse proxy is `addr = "https://gpu.example.com"`.
+
+Uninstalling an agent host: `systemctl --user disable --now llmtop-agent`,
+remove `~/.config/systemd/user/llmtop-agent.service`, then `make uninstall`
+(and `rm -rf ~/.config/llmtop` if you want the config gone too).
+
+## Commands and flags
 
 | Command | Flag | Meaning |
 | --- | --- | --- |
 | `llmtop` | `--config PATH` | config file path (default `~/.config/llmtop/config.toml`) |
 | `llmtop` | `--demo` | synthetic data, no GPUs needed |
-| `llmtop` | `--connect HOST:PORT` | connect to an agent ad hoc (repeatable) |
+| `llmtop` | `--connect HOST:PORT` | connect to an agent ad hoc (repeatable; accepts a full `http(s)://` URL) |
+| `llmtop` | `--version` | print the version and exit |
 | `llmtop agent` | `--config PATH` | config file path |
 | `llmtop agent` | `--listen ADDR` | listen address (overrides config, default `:9832`) |
-| `llmtop agent` | `--token TOKEN` | bearer token (overrides config) |
+| `llmtop agent` | `--token TOKEN` | bearer token (overrides `LLMTOP_TOKEN` and config) |
+| `llmtop version` | | print the version and exit |
+
+An explicit `--config` that does not exist is an error; the default path is
+simply skipped when absent. Unknown subcommands and stray arguments are
+rejected rather than silently starting the TUI.
 
 ## Configuration
 
@@ -96,7 +155,8 @@ permanently — see below.
 file at all is equivalent to monitoring only the local machine with defaults.
 
 ```toml
-refresh_ms = 1000        # TUI poll + local sample cadence
+refresh_ms = 1000        # TUI poll and local sample cadence; on an agent host,
+                         # the agent's own sample cadence and history depth
 
 [[hosts]]                # omit ALL [[hosts]] entries to default to local-only
 name  = "local"          # required on every host entry
@@ -111,7 +171,7 @@ addr  = "192.0.2.10:9832"
 token = "…"              # optional, must match agent's
 
 [agent]                   # used by `llmtop agent`
-listen = ":9832"
+listen = ":9832"          # all interfaces; use "127.0.0.1:9832" to stay local
 token  = "…"              # optional
 ```
 
@@ -127,11 +187,28 @@ declare its `llm_endpoints` in the agent's own config on that machine instead.
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` / arrows | select GPU panel |
-| `p` | pause updates |
-| `+` / `-` | increase / decrease refresh rate |
+| `j` / `k`, `↓` / `↑` | select GPU panel |
+| `p` | pause the display (sources keep sampling) |
+| `+` (or `=`) | halve the refresh interval, down to 250 ms |
+| `-` | double the refresh interval, up to 10 s |
 | `?` | toggle help |
 | `q` / `Ctrl-C` | quit |
+
+## Reading the display
+
+- Each host gets a strip (name, driver, agent status) and one panel per GPU
+  with utilization and memory history charts. The `(llm …)` part of each
+  caption is the share attributed to LLM processes.
+- A GPU process counts as **LLM** if it is (or descends from) a discovered
+  `llama-server`, or its name contains `llama-server`, `vllm`, `sglang`, or
+  `ollama`. Everything else is graphics (compositor, X/Wayland) or other
+  compute.
+- `gen 42.3 t/s` is a measured generation rate. llama.cpp only advances its
+  token counters when a request completes, so between completions the rate is
+  amortised over the last request; while a request is in flight, `gen ~40 t/s`
+  (with a tilde) is a live estimate derived from the decode counter.
+- A server can be `ok`, `loading` (process up, model not resident yet),
+  `sleeping` (see below), or `unreachable`.
 
 ## llama.cpp notes
 
@@ -141,24 +218,77 @@ declare its `llm_endpoints` in the agent's own config on that machine instead.
   ephemeral ports — those are separate processes and get discovered the same
   way, so both the router and its workers show up.
 - **Start llama-server with `--metrics` enabled** to get throughput stats
-  (prompt/generation tok/s, KV-cache usage, request queue depth) in `llmtop`.
-  Without it, the server still shows up with model/context/slot info and a
-  `(--metrics off)` hint instead of throughput numbers — llama.cpp keeps
-  running exactly the same either way, `llmtop` just has less to show.
+  (prompt/generation tok/s, KV-cache usage, request queue depth). Without it,
+  the server still shows up with model/context/slot info and a
+  `metrics disabled` hint instead of throughput numbers.
+- **Idle sleep is respected.** llama.cpp counts every `/metrics` scrape as
+  activity, so a naive monitor would keep a `--sleep-idle-seconds` server
+  awake forever. When `llmtop` sees `--sleep-idle-seconds` on a discovered
+  server's command line, it stops scraping `/metrics` after three quiet polls
+  (only `/health` and `/props` keep being polled, which llama.cpp does not
+  count) so the model can unload; the server then shows as `sleeping` with
+  throughput at 0. Scraping resumes as soon as the process shows GPU activity
+  again or the server reports it is awake.
 - **Containers / static endpoints:** if a server's process isn't visible from
   the host (e.g. running in a container with a hidden cmdline), add it under
   `[[hosts.llm_endpoints]]` in the config of whichever process collects for
   that machine — the TUI's local host entry when it's the local machine, or
   the agent's own config when it's a remote machine — so `llmtop` polls its
-  HTTP API directly even though it can't be discovered via `/proc`.
+  HTTP API directly. **Caveat:** static endpoints are polled unconditionally,
+  because without the command line `llmtop` cannot tell that idle sleep is
+  enabled — a static `--sleep-idle-seconds` server will be kept awake. Prefer
+  making the process visible instead (`docker run --pid=host`, Kubernetes
+  `hostPID: true`), which arms the idle-sleep handling automatically.
+- **`--api-key` servers are not supported yet.** llama.cpp exempts `/health`
+  from its API-key check, so such a server appears as `ok` but with no model
+  name and a spurious `metrics disabled` hint, because `/props` and `/metrics`
+  are refused. Run the server without an API key on the interface `llmtop`
+  uses, or put the key on the reverse proxy in front of it.
 
 ## Agent security
 
-`llmtop agent` serves read-only JSON metrics over plain HTTP — no TLS in v1.
-It's designed for a trusted LAN (e.g. a homelab): point a handful of
-workstations at a handful of GPU boxes you already control. An optional
-shared bearer token (`--token` / `token =` in config) gates the API if you
-want a minimal barrier against other hosts on the same network, but this is
-not a substitute for network-level trust. Don't expose the agent's listen
-address to an untrusted network without putting it behind a TLS-terminating
-reverse proxy or a VPN.
+`llmtop agent` serves read-only JSON telemetry over plain HTTP — no TLS. It
+is designed for a trusted LAN (e.g. a homelab): point a handful of
+workstations at a handful of GPU boxes you already control.
+
+Be aware of the defaults: `listen = ":9832"` binds **every interface**, and
+with no token configured the API is **unauthenticated** — anyone who can reach
+the port can read the host's hostname, driver version, GPU models and UUIDs,
+the PID and name of every process using a GPU, and the endpoints and model
+names of your llama.cpp servers. The agent prints a warning at startup in that
+configuration. Set a token if other machines share the network, or bind a
+specific address (`--listen 127.0.0.1:9832`, or a LAN IP). A token also
+protects against browser-based attacks such as DNS rebinding, since a web page
+cannot know it. None of this substitutes for network-level trust: do not
+expose the agent to an untrusted network without a TLS-terminating reverse
+proxy or a VPN.
+
+### Agent API
+
+| Endpoint | Auth | Returns |
+| --- | --- | --- |
+| `GET /healthz` | none | `{"ok":true}` — liveness only |
+| `GET /api/v1/snapshot` | bearer token if set | the latest snapshot: host info, GPUs, GPU processes, LLM servers, errors |
+| `GET /api/v1/history?since=<unix-millis>` | bearer token if set | snapshots newer than `since`, newest 300 at most |
+
+```bash
+curl -H "Authorization: Bearer some-shared-secret" http://gpu-box:9832/api/v1/snapshot
+```
+
+## Development
+
+`make check` runs the same gate as CI: `gofmt` check, `go vet`, golangci-lint
+(v2; CI pins v2.12), and the unit tests. `make test-nvml` runs the env-gated
+hardware smoke test against a real GPU (`LLMTOP_NVML_TEST=1`). `make run
+ARGS=--demo` builds and launches the demo. `make screenshot` regenerates
+`docs/demo.png` (needs tmux, freeze, ImageMagick, optipng).
+
+## Reporting issues
+
+Please include the output of `llmtop version`, your distribution and NVIDIA
+driver version, the `llama-server` command line, your terminal emulator, and
+whether `llmtop --demo` renders correctly.
+
+## License
+
+[MIT](LICENSE).
