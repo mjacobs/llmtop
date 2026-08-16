@@ -43,10 +43,17 @@ type epState struct {
 
 func NewLlamaCpp() *LlamaCpp {
 	return &LlamaCpp{
-		Client: &http.Client{Timeout: 500 * time.Millisecond},
-		Now:    time.Now,
-		rates:  NewRateTracker(),
-		state:  map[string]*epState{},
+		// No redirects: the endpoints come from process discovery, and a
+		// redirect would let a server we probe send us somewhere else.
+		Client: &http.Client{
+			Timeout: 500 * time.Millisecond,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		Now:   time.Now,
+		rates: NewRateTracker(),
+		state: map[string]*epState{},
 	}
 }
 

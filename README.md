@@ -214,9 +214,13 @@ declare its `llm_endpoints` in the agent's own config on that machine instead.
 
 - **Discovery** is automatic: `llmtop` scans `/proc` for `llama-server`
   processes and parses `--host`/`--port` from the command line (default port
-  8080). Router-mode setups (`--models-dir`) spawn worker children on
-  ephemeral ports — those are separate processes and get discovered the same
-  way, so both the router and its workers show up.
+  8080; a wildcard bind is reached via loopback). Router-mode setups
+  (`--models-dir`) spawn worker children on ephemeral ports — those are
+  separate processes and get discovered the same way, so both the router and
+  its workers show up. Because the command line belongs to another process,
+  `--host` is only honoured when it is `localhost` or an IP address this
+  machine actually has; a server bound to a hostname must be declared as a
+  static endpoint (below).
 - **Start llama-server with `--metrics` enabled** to get throughput stats
   (prompt/generation tok/s, KV-cache usage, request queue depth). Without it,
   the server still shows up with model/context/slot info and a
