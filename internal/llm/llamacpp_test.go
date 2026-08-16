@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -570,5 +571,29 @@ func TestNoGateWithoutSleepIdleFlag(t *testing.T) {
 	}
 	if hits != 6 {
 		t.Fatalf("/metrics hit %d times, want 6 (no sleep-idle -> no gating)", hits)
+	}
+}
+
+// TestFetchDoesNotFollowRedirects pins the request-steering guard: a probed
+// server that answers with a redirect must be treated as not-ok, and the
+// redirect target must never be contacted.
+func TestFetchDoesNotFollowRedirects(t *testing.T) {
+	var targetHits int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&targetHits, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	s := NewLlamaCpp().Fetch(context.Background(), redirector.URL, FetchHint{})
+	if s.Status == model.StatusOK {
+		t.Fatalf("a redirecting /health must not count as ok, got %q", s.Status)
+	}
+	if n := atomic.LoadInt32(&targetHits); n != 0 {
+		t.Fatalf("redirect target was contacted %d time(s); redirects must not be followed", n)
 	}
 }
