@@ -39,7 +39,8 @@ git clone https://github.com/mjacobs/llmtop && cd llmtop
 make install
 ```
 
-Or with the Go toolchain directly (installs to `$(go env GOPATH)/bin`):
+Or with the Go toolchain directly (installs to `$GOBIN` if set, else
+`$(go env GOPATH)/bin`):
 
 ```bash
 go install github.com/mjacobs/llmtop/cmd/llmtop@latest
@@ -87,9 +88,9 @@ llmtop --connect remote-host:9832
 To run the agent permanently as a systemd user service, install `llmtop` on
 that host and install the included unit. The unit expects the binary at
 `~/.local/bin/llmtop` (where `make install` puts it); if you used a custom
-`XDG_BIN_HOME` or `go install` (which puts it in `$(go env GOPATH)/bin`),
-change `ExecStart` in the copied unit to that absolute path before enabling
-it:
+`XDG_BIN_HOME` or `go install` (`$GOBIN`, else `$(go env GOPATH)/bin` —
+`command -v llmtop` tells you), change `ExecStart` in the copied unit to that
+absolute path before enabling it:
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -133,7 +134,8 @@ TLS-terminating reverse proxy is `addr = "https://gpu.example.com"`.
 
 Uninstalling an agent host: `systemctl --user disable --now llmtop-agent`,
 remove `~/.config/systemd/user/llmtop-agent.service`, then `make uninstall`
-(or `rm "$(go env GOPATH)/bin/llmtop"` for a `go install` build), and
+(or delete the binary that `command -v llmtop` points at, for a `go install`
+build), and
 `rm -rf ~/.config/llmtop` if you want the config gone too.
 
 ## Commands and flags
