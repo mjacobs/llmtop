@@ -253,8 +253,9 @@ declare its `llm_endpoints` in the agent's own config on that machine instead.
 - **`--api-key` servers are not supported yet.** llama.cpp exempts `/health`
   from its API-key check, so such a server appears as `ok` but with no model
   name and a spurious `metrics disabled` hint, because `/props` and `/metrics`
-  are refused. Run the server without an API key on the interface `llmtop`
-  uses, or put the key on the reverse proxy in front of it.
+  are refused. If the server is bound to loopback anyway, it can run without
+  a key; a server reachable from the network should keep its key (or sit
+  behind an authenticating proxy) and accept the reduced display for now.
 
 ## Agent security
 
@@ -274,9 +275,12 @@ What to do about it: if only this machine needs the data, bind loopback
 confines access; binding a LAN IP just picks which network can read it. For
 anything reachable from other machines, set a token; it also defeats
 browser-based tricks such as DNS rebinding, since a web page cannot know it.
-For a network you don't fully trust, add a firewall rule or VPN, or put the
-agent behind a reverse proxy that authenticates — TLS on its own only hides
-the traffic, it doesn't restrict who can read the telemetry.
+Remember the agent speaks plain HTTP: on a network you don't fully trust,
+anyone who can watch the traffic can read the telemetry and the token, so
+use a VPN or an authenticating TLS reverse proxy there. Firewall rules narrow
+who can connect but don't protect what's on the wire, and TLS on its own
+encrypts the traffic but doesn't restrict who can read the telemetry — once
+you leave your own LAN you want both authentication and encryption.
 
 ### Agent API
 
