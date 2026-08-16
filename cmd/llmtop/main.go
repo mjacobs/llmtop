@@ -177,8 +177,9 @@ func runAgent(args []string) error {
 	if *listen != "" {
 		cfg.Agent.Listen = *listen
 	}
-	// Token precedence: flag > LLMTOP_TOKEN > config file.
-	if *token != "" {
+	// Token precedence: flag (even an explicit empty --token=, which turns
+	// auth off) > LLMTOP_TOKEN > config file.
+	if flagWasSet(fs, "token") {
 		cfg.Agent.Token = *token
 	} else if t := os.Getenv("LLMTOP_TOKEN"); t != "" {
 		cfg.Agent.Token = t
