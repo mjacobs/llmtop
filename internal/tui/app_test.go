@@ -60,7 +60,7 @@ func TestNavigationAcrossGPUPanels(t *testing.T) {
 		t.Fatalf("selected = %d, want 0", a.selected)
 	}
 
-	// enter/esc/tab are gone: they must not disturb state.
+	// enter/esc/tab are unbound: they must not disturb state.
 	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	a = m.(*App)
 	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -157,6 +157,6 @@ func TestViewRenders(t *testing.T) {
 		t.Fatalf("view:\n%s", out)
 	}
 	if strings.Contains(out, "drill-down") {
-		t.Fatalf("footer must not mention the removed drill-down:\n%s", out)
+		t.Fatalf("footer must not advertise a drill-down mode (there is none):\n%s", out)
 	}
 }

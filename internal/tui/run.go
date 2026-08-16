@@ -1,3 +1,23 @@
+// Package tui is llmtop's terminal front end: a bubbletea program that turns
+// a stream of client.Update values into a per-host, per-GPU dashboard.
+//
+// The pipeline, file by file:
+//
+//   - run.go: the composition root. Builds the update sources (local
+//     collector, remote agents, or the demo feed), wires them to an App, and
+//     runs the bubbletea program.
+//   - app.go: the bubbletea root model. Owns per-host state, the selected
+//     GPU panel, pause/refresh controls, and the header/footer chrome.
+//   - state.go: HostState — the latest Snapshot per host plus rolling
+//     history rings (util/mem per GPU, gen t/s per server) that feed the charts.
+//   - layout.go: the per-frame density solver. Picks the layout (one row,
+//     stacked grid, or compact) and tier (FULL/CHARTS/COMPACT) that fits the
+//     terminal, counting lines without rendering.
+//   - overview.go, panel.go: the renderers — host strips, per-GPU panels,
+//     server blocks, process tables, and the compact fallback. Their line
+//     accounting must match the solver exactly (see the IMPORTANT comments).
+//   - charts.go: braille area-chart and block-eighth sparkline primitives.
+//   - theme.go: the color palette and lipgloss styles.
 package tui
 
 import (

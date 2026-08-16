@@ -13,11 +13,11 @@ import (
 var sampleTS = time.Unix(1_700_000_000, 0)
 
 // SampleHostStates returns 3 deterministic HostStates covering the shapes
-// the overview/drill-down/app views need to exercise:
+// the overview, panel, layout, and app tests need to exercise:
 //
 //   - "alpha": healthy, 2 GPUs, 2 servers (one with Metrics nil, i.e.
 //     "--metrics off"), and 5 GPU processes (llm/graphics/other classes,
-//     including an SM%-unknown one) for the drill-down process table.
+//     including an SM%-unknown one) for the per-GPU process table.
 //     Server PIDs match the llama-server procs so each maps to its GPU.
 //   - "bravo": reachable host whose one server has Status loading.
 //   - "charlie": unreachable — ErrMsg set, no Snap.
@@ -32,7 +32,7 @@ func SampleHostStates() []*HostState {
 			Name:          "alpha",
 			Hostname:      "alpha",
 			DriverVersion: "580.65.06",
-			AgentVersion:  "0.4.0",
+			AgentVersion:  "test",
 		},
 		Timestamp: sampleTS,
 		GPUs: []model.GPU{
@@ -86,7 +86,7 @@ func SampleHostStates() []*HostState {
 	bravo.Apply(client.Update{Host: "bravo", Snapshot: &model.Snapshot{
 		Host: model.HostInfo{
 			Name: "bravo", Hostname: "bravo",
-			DriverVersion: "580.65.06", AgentVersion: "0.4.0",
+			DriverVersion: "580.65.06", AgentVersion: "test",
 		},
 		Timestamp: sampleTS,
 		GPUs: []model.GPU{

@@ -164,7 +164,7 @@ func (a *App) View() string {
 }
 
 // fmtRefresh renders the refresh interval as seconds with one decimal place
-// (e.g. "1.0s", "0.3s") to match the header spec.
+// (e.g. "1.0s", "0.3s").
 func fmtRefresh(d time.Duration) string {
 	return fmt.Sprintf("%.1fs", d.Seconds())
 }
