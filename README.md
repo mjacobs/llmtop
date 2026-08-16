@@ -19,7 +19,8 @@ Try it without any hardware: `llmtop --demo` renders synthetic data.
   a systemd user unit. There is no macOS or Windows support.
 - **NVIDIA GPUs** with the proprietary driver installed (`libnvidia-ml.so.1`,
   i.e. NVML). No AMD, Intel, or Apple GPU support. Runs as an unprivileged
-  user; no root needed. Only `--demo` works without a driver.
+  user; no root needed. Without a driver you still get `--demo`, remote
+  hosts, and the local process/llama.cpp view — just no GPU data.
 - **llama.cpp `llama-server`** for the serving stats. The GPU-usage breakdown
   also counts vLLM, SGLang, and Ollama processes as "LLM", but throughput,
   KV-cache, and slot details are read from llama.cpp only.
