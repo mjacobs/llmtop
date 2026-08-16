@@ -134,7 +134,7 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 	case srv.Role == "router":
 		return "  " + th.Dim.Render("router — spawns model instances on demand")
 	case srv.Status == model.StatusUnreachable:
-		return "  " + th.Err.Render("unreachable — no response from server")
+		return "  " + th.Err.Render("unreachable — health check failed")
 	case srv.Status == model.StatusLoading:
 		return "  " + th.Dim.Render("loading — model not resident yet")
 	case srv.Status == model.StatusSleeping:

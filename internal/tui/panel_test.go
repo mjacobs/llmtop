@@ -543,7 +543,7 @@ func TestServerLine2StatusHints(t *testing.T) {
 		notWant string
 	}{
 		{name: "ok", status: model.StatusOK, want: "metrics disabled — start llama-server with --metrics"},
-		{name: "unreachable", status: model.StatusUnreachable, want: "unreachable — no response from server", notWant: "--metrics"},
+		{name: "unreachable", status: model.StatusUnreachable, want: "unreachable — health check failed", notWant: "--metrics"},
 		{name: "loading", status: model.StatusLoading, want: "loading — model not resident yet", notWant: "--metrics"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
