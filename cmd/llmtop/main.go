@@ -52,10 +52,15 @@ func main() {
 				os.Exit(1)
 			}
 			return
-		case "version":
-			fmt.Println("llmtop", versionString())
-			return
-		case "help":
+		case "version", "help":
+			if len(args) > 1 {
+				fmt.Fprintf(os.Stderr, "llmtop %s: unexpected argument %q\n", args[0], args[1])
+				os.Exit(1)
+			}
+			if args[0] == "version" {
+				fmt.Println("llmtop", versionString())
+				return
+			}
 			fs, _ := tuiFlags()
 			fs.SetOutput(os.Stdout)
 			fs.Usage()
