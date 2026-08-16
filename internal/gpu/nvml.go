@@ -1,28 +1,62 @@
 package gpu
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
 // nvmlVendor implements Vendor via NVIDIA's go-nvml bindings.
+//
+// go-nvml resolves libnvidia-ml symbols lazily, so calling any NVML
+// function before Init has succeeded (no driver installed, Init never
+// called) aborts the process with "symbol lookup error" instead of
+// returning an error. initErr guards every entry point: NewNVML seeds it
+// and only a successful Init clears it.
 type nvmlVendor struct {
-	lastTs map[int]uint64 // per-device GetProcessUtilization watermark
+	initErr error          // why NVML is unusable; nil once Init succeeded
+	lastTs  map[int]uint64 // per-device GetProcessUtilization watermark
 }
 
-func NewNVML() Vendor { return &nvmlVendor{lastTs: map[int]uint64{}} }
+func NewNVML() Vendor {
+	return &nvmlVendor{initErr: errors.New("nvml not initialized"), lastTs: map[int]uint64{}}
+}
 
 func (n *nvmlVendor) Init() error {
 	if ret := nvml.Init(); ret != nvml.SUCCESS {
-		return fmt.Errorf("nvml init: %s", nvml.ErrorString(ret))
+		n.initErr = initErr(ret)
+		return n.initErr
 	}
+	n.initErr = nil
 	return nil
 }
 
-func (n *nvmlVendor) Shutdown() { _ = nvml.Shutdown() }
+// initErr turns an nvml.Init failure into a message a user can act on.
+// The two common driverless cases get plain English; anything else keeps
+// the raw NVML enum name.
+func initErr(ret nvml.Return) error {
+	switch ret {
+	case nvml.ERROR_LIBRARY_NOT_FOUND:
+		return errors.New("nvml init: no NVIDIA driver found (libnvidia-ml.so.1 is not installed) — try 'llmtop --demo' for synthetic data")
+	case nvml.ERROR_DRIVER_NOT_LOADED:
+		return errors.New("nvml init: NVIDIA driver is installed but not loaded")
+	}
+	return fmt.Errorf("nvml init: %s", nvml.ErrorString(ret))
+}
+
+// Shutdown is a no-op unless Init succeeded, so callers may defer it
+// unconditionally.
+func (n *nvmlVendor) Shutdown() {
+	if n.initErr == nil {
+		_ = nvml.Shutdown()
+	}
+}
 
 func (n *nvmlVendor) DriverVersion() (string, error) {
+	if n.initErr != nil {
+		return "", n.initErr
+	}
 	v, ret := nvml.SystemGetDriverVersion()
 	if ret != nvml.SUCCESS {
 		return "", fmt.Errorf("driver version: %s", nvml.ErrorString(ret))
@@ -34,6 +68,9 @@ func (n *nvmlVendor) DriverVersion() (string, error) {
 // since the per-device lastTs watermark map it reads and updates is
 // unsynchronized.
 func (n *nvmlVendor) Sample() ([]DeviceSample, []ProcSample, error) {
+	if n.initErr != nil {
+		return nil, nil, n.initErr
+	}
 	count, ret := nvml.DeviceGetCount()
 	if ret != nvml.SUCCESS {
 		return nil, nil, fmt.Errorf("device count: %s", nvml.ErrorString(ret))

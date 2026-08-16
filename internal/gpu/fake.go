@@ -6,9 +6,10 @@ import (
 	"sync"
 )
 
-// Fake is a deterministic Vendor: utilization follows per-device sine
-// waves over a step counter, so charts wander plausibly in --demo mode
-// and tests reproduce exactly. No wall clock, no math/rand.
+// Fake is a deterministic Vendor for tests: utilization follows per-device
+// sine waves over a step counter, so samples look plausible and every run
+// reproduces exactly. No wall clock, no math/rand. (It does not back
+// --demo; see internal/client/demo.go for that.)
 type Fake struct {
 	mu    sync.Mutex
 	n     int

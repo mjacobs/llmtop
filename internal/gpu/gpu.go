@@ -1,5 +1,6 @@
 // Package gpu abstracts GPU telemetry vendors. v1 ships NVML (NVIDIA) and
-// a deterministic fake for tests and --demo mode.
+// a deterministic Fake for tests. (--demo does not use a Vendor at all;
+// its synthetic hosts come from internal/client/demo.go.)
 package gpu
 
 type DeviceSample struct {

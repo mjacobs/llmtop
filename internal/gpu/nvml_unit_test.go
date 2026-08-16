@@ -1,10 +1,48 @@
 package gpu
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
+
+func TestInitErrMessages(t *testing.T) {
+	cases := []struct {
+		name string
+		ret  nvml.Return
+		want string // substring the message must contain
+	}{
+		{"library not found", nvml.ERROR_LIBRARY_NOT_FOUND, "no NVIDIA driver found"},
+		{"driver not loaded", nvml.ERROR_DRIVER_NOT_LOADED, "installed but not loaded"},
+		{"other keeps enum", nvml.ERROR_UNKNOWN, "ERROR_UNKNOWN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := initErr(tc.ret).Error()
+			if !strings.HasPrefix(got, "nvml init: ") {
+				t.Errorf("got %q, want the \"nvml init: \" prefix", got)
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("got %q, want it to contain %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Before a successful Init every NVML call is a process-killing symbol
+// lookup, so the vendor must answer without touching NVML. This test
+// never calls Init and so is safe on a driverless machine.
+func TestNVMLGuardsBeforeInit(t *testing.T) {
+	v := NewNVML()
+	if _, _, err := v.Sample(); err == nil {
+		t.Error("Sample before Init: want error, got nil")
+	}
+	if _, err := v.DriverVersion(); err == nil {
+		t.Error("DriverVersion before Init: want error, got nil")
+	}
+	v.Shutdown() // must be a no-op, not a crash
+}
 
 // fakeDevice implements nvml.Device for deviceProcs unit tests by embedding
 // the interface and overriding only the methods deviceProcs calls. Calling
