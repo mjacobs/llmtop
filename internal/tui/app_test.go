@@ -164,6 +164,9 @@ func TestViewRenders(t *testing.T) {
 	if out == "" || !strings.Contains(out, "llmtop") || !strings.Contains(out, "h1") {
 		t.Fatalf("view:\n%s", out)
 	}
+	if header := strings.SplitN(out, "\n", 2)[0]; header != "llmtop · refresh 1.0s" {
+		t.Fatalf("header = %q, want version-free header", header)
+	}
 	if strings.Contains(out, "drill-down") {
 		t.Fatalf("footer must not advertise a drill-down mode (there is none):\n%s", out)
 	}

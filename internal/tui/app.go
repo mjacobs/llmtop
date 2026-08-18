@@ -188,7 +188,7 @@ var fullHelp = []string{
 }
 
 func (a *App) View() string {
-	header := fmt.Sprintf("llmtop %s · refresh %s", a.version, fmtRefresh(a.refresh))
+	header := fmt.Sprintf("llmtop · refresh %s", fmtRefresh(a.refresh))
 	if a.paused {
 		header += " ⏸"
 	}
