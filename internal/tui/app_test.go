@@ -14,7 +14,11 @@ import (
 
 func testApp() (*App, chan client.Update) {
 	ch := make(chan client.Update, 8)
-	a := NewApp([]string{"h1", "h2"}, ch, time.Second, func(time.Duration) {}, "test")
+	a := NewApp(ViewConfig{
+		Hosts:             []HostSpec{{Name: "h1"}, {Name: "h2"}},
+		ShowAddresses:     true,
+		ShowGraphicsProcs: true,
+	}, ch, time.Second, func(time.Duration) {}, "test")
 	return a, ch
 }
 
@@ -112,7 +116,11 @@ func TestRefreshKeysSkipNoOpCallback(t *testing.T) {
 	ch := make(chan client.Update, 8)
 	calls := 0
 	var lastArg time.Duration
-	a := NewApp([]string{"h1"}, ch, minRefresh, func(d time.Duration) {
+	a := NewApp(ViewConfig{
+		Hosts:             []HostSpec{{Name: "h1"}},
+		ShowAddresses:     true,
+		ShowGraphicsProcs: true,
+	}, ch, minRefresh, func(d time.Duration) {
 		calls++
 		lastArg = d
 	}, "test")
@@ -158,6 +166,31 @@ func TestViewRenders(t *testing.T) {
 	}
 	if strings.Contains(out, "drill-down") {
 		t.Fatalf("footer must not advertise a drill-down mode (there is none):\n%s", out)
+	}
+}
+
+// The expanded help carries a build-detail line: version always, plus the
+// Go toolchain from the binary's build info (test binaries have no VCS
+// stamps, so commit/date are rightly absent here). The collapsed footer
+// must not carry it — it lives behind '?'.
+func TestHelpShowsBuildDetail(t *testing.T) {
+	a, _ := testApp()
+	m, _ := a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	a = m.(*App)
+
+	if !strings.HasPrefix(a.buildLine, "llmtop test") {
+		t.Fatalf("buildLine = %q, want it to lead with the version", a.buildLine)
+	}
+	if !strings.Contains(a.buildLine, "go1.") {
+		t.Fatalf("buildLine = %q, want the Go toolchain version", a.buildLine)
+	}
+
+	if out := a.View(); strings.Contains(out, "go1.") {
+		t.Fatal("collapsed footer must not show build detail")
+	}
+	a.showHelp = true
+	if out := a.View(); !strings.Contains(out, a.buildLine) {
+		t.Fatalf("expanded help must contain %q:\n%s", a.buildLine, a.View())
 	}
 }
 

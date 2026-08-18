@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -34,15 +35,16 @@ type App struct {
 	showHelp      bool
 	width, height int
 	theme         Theme
+	buildLine     string // expanded help's build-detail line, computed once
 }
 
-func NewApp(hostNames []string, updates <-chan client.Update, refresh time.Duration, onRefreshChange func(time.Duration), version string) *App {
+func NewApp(view ViewConfig, updates <-chan client.Update, refresh time.Duration, onRefreshChange func(time.Duration), version string) *App {
 	a := &App{updates: updates, refresh: refresh, onRefresh: onRefreshChange,
-		version: version, theme: DefaultTheme(), hostByName: map[string]*HostState{}}
-	for _, n := range hostNames {
-		h := NewHostState(n)
+		version: version, theme: DefaultTheme(), hostByName: map[string]*HostState{},
+		buildLine: buildDetail(version)}
+	for _, h := range hostStates(view) {
 		a.hosts = append(a.hosts, h)
-		a.hostByName[n] = h
+		a.hostByName[h.Name] = h
 	}
 	return a
 }
@@ -135,6 +137,46 @@ func (a *App) panelCount() int {
 
 const helpText = "q quit · j/k select · p pause · +/- refresh · ? help"
 
+// buildDetail renders the expanded help's first line: the display version
+// plus whatever build metadata Go stamped into the binary — toolchain,
+// VCS commit (short), commit date, and a dirty marker. A binary without
+// VCS info (e.g. `go install module@version`) just omits those parts.
+func buildDetail(version string) string {
+	parts := []string{"llmtop " + version}
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return parts[0]
+	}
+	if bi.GoVersion != "" {
+		parts = append(parts, bi.GoVersion)
+	}
+	var rev, date, modified string
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.time":
+			date = s.Value
+		case "vcs.modified":
+			modified = s.Value
+		}
+	}
+	if rev != "" {
+		if len(rev) > 12 {
+			rev = rev[:12]
+		}
+		commit := "commit " + rev
+		if modified == "true" {
+			commit += " (dirty)"
+		}
+		parts = append(parts, commit)
+	}
+	if len(date) >= len("2006-01-02") {
+		parts = append(parts, "built "+date[:len("2006-01-02")])
+	}
+	return strings.Join(parts, " · ")
+}
+
 var fullHelp = []string{
 	"q / ctrl+c   quit",
 	"j / down     select next GPU panel",
@@ -154,8 +196,9 @@ func (a *App) View() string {
 	footer := a.theme.Dim.Render(helpText)
 	footerLines := 1
 	if a.showHelp {
-		footer = a.theme.Dim.Render(strings.Join(fullHelp, "\n"))
-		footerLines = len(fullHelp)
+		lines := append([]string{a.buildLine}, fullHelp...)
+		footer = a.theme.Dim.Render(strings.Join(lines, "\n"))
+		footerLines = len(lines)
 	}
 
 	body := RenderOverview(a.hosts, a.selected, a.width, a.height-1-footerLines, a.theme)

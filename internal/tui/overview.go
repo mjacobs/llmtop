@@ -279,7 +279,7 @@ func titleLine(h *HostState, th Theme, width int) string {
 	if h.ErrMsg != "" {
 		agent = "err"
 	}
-	line := th.Title.Render(h.Name) + th.Dim.Render(fmt.Sprintf(" · driver %s · agent %s", driver, agent))
+	line := th.Title.Render(h.Display) + th.Dim.Render(fmt.Sprintf(" · driver %s · agent %s", driver, agent))
 	return truncateLine(line, width)
 }
 

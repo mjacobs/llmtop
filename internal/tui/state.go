@@ -13,10 +13,15 @@ const ringCapacity = 300
 // HostState accumulates the latest Snapshot (or error) for one host plus
 // rolling history for its charts. Rings are keyed by GPU index (util/mem,
 // total and LLM-only split) or by server endpoint (generation throughput).
+// Snapshots pass through view.filterSnapshot on the way in, so Snap already
+// reflects the config's display settings (GPU selection/order, hidden
+// graphics processes, redacted addresses).
 type HostState struct {
-	Name   string
-	Snap   *model.Snapshot
-	ErrMsg string
+	Name    string // routing key for incoming updates
+	Display string // rendered title; differs from Name only when addresses are hidden
+	Snap    *model.Snapshot
+	ErrMsg  string
+	view    hostView
 
 	UtilHist    map[int]*history.Ring[float64]
 	MemHist     map[int]*history.Ring[float64]
@@ -28,6 +33,8 @@ type HostState struct {
 func NewHostState(name string) *HostState {
 	return &HostState{
 		Name:        name,
+		Display:     name,
+		view:        hostView{showGraphics: true, showAddrs: true},
 		UtilHist:    map[int]*history.Ring[float64]{},
 		MemHist:     map[int]*history.Ring[float64]{},
 		LLMUtilHist: map[int]*history.Ring[float64]{},
@@ -46,7 +53,7 @@ func NewHostState(name string) *HostState {
 //     that repeat doesn't double-push ring points.
 func (h *HostState) Apply(u client.Update) {
 	if u.Err != nil {
-		h.ErrMsg = u.Err.Error()
+		h.ErrMsg = h.view.scrubErr(u.Err.Error())
 	}
 	if u.Snapshot == nil {
 		return
@@ -61,15 +68,15 @@ func (h *HostState) Apply(u client.Update) {
 	}
 
 	h.ErrMsg = ""
-	h.Snap = u.Snapshot
+	h.Snap = h.view.filterSnapshot(u.Snapshot)
 
-	for _, gpu := range u.Snapshot.GPUs {
+	for _, gpu := range h.Snap.GPUs {
 		ringPush(h.UtilHist, gpu.Index, float64(gpu.UtilPct))
 		ringPush(h.MemHist, gpu.Index, pct(gpu.MemUsed, gpu.MemTotal))
 		ringPush(h.LLMUtilHist, gpu.Index, float64(gpu.LLMUtilPct))
 		ringPush(h.LLMMemHist, gpu.Index, pct(gpu.LLMMemBytes, gpu.MemTotal))
 	}
-	for _, srv := range u.Snapshot.Servers {
+	for _, srv := range h.Snap.Servers {
 		if srv.Metrics == nil {
 			continue
 		}

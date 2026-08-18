@@ -19,10 +19,15 @@ type LLMEndpoint struct {
 }
 
 type HostConfig struct {
-	Name         string        `toml:"name"`
-	Local        bool          `toml:"local"`
-	Addr         string        `toml:"addr"`
-	Token        string        `toml:"token"`
+	Name  string `toml:"name"`
+	Local bool   `toml:"local"`
+	Addr  string `toml:"addr"`
+	Token string `toml:"token"`
+	// GPUs selects which of the host's GPUs the TUI shows and in what
+	// order, by device index. nil (key absent) means all GPUs in device
+	// order; an empty list hides them all. Display-only: collection and
+	// the agent's wire snapshots are unaffected.
+	GPUs         []int         `toml:"gpus"`
 	LLMEndpoints []LLMEndpoint `toml:"llm_endpoints"`
 }
 
@@ -31,18 +36,45 @@ type AgentConfig struct {
 	Token  string `toml:"token"`
 }
 
+// UIConfig holds display-only toggles for the TUI. Both default to true;
+// they never change what is collected or what an agent serves.
+type UIConfig struct {
+	// ShowAddresses=false hides network identity from the display for
+	// screenshots and demos: host titles become host1, host2, …; server
+	// endpoints render as :port; error banners have the host's address
+	// struck out.
+	ShowAddresses bool `toml:"show_addresses"`
+	// ShowGraphicsProcs=false drops graphics-class rows from the GPU
+	// PROCESSES table. Their VRAM stays in the mem chart's total series —
+	// that comes from the GPU's own used-memory counter, not the table.
+	ShowGraphicsProcs bool `toml:"show_graphics_procs"`
+}
+
 type Config struct {
 	RefreshMS int          `toml:"refresh_ms"`
 	Hosts     []HostConfig `toml:"hosts"`
 	Agent     AgentConfig  `toml:"agent"`
+	UI        UIConfig     `toml:"ui"`
 }
 
+// DefaultPath is ~/.config/llmtop/config.toml; when that file does not
+// exist but the flat ~/.config/llmtop.toml does, the flat file is used
+// instead. The directory form stays canonical (it's what a fresh setup
+// should create) — the flat form is an accepted alternative, not a merge.
 func DefaultPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "llmtop", "config.toml")
+	canonical := filepath.Join(dir, "llmtop", "config.toml")
+	if _, err := os.Stat(canonical); err == nil {
+		return canonical
+	}
+	flat := filepath.Join(dir, "llmtop.toml")
+	if _, err := os.Stat(flat); err == nil {
+		return flat
+	}
+	return canonical
 }
 
 func Default() Config {
@@ -54,6 +86,7 @@ func Default() Config {
 		RefreshMS: 1000,
 		Hosts:     []HostConfig{{Name: name, Local: true}},
 		Agent:     AgentConfig{Listen: ":9832"},
+		UI:        UIConfig{ShowAddresses: true, ShowGraphicsProcs: true},
 	}
 }
 
@@ -115,6 +148,16 @@ func validate(cfg Config) error {
 		}
 		if !h.Local && len(h.LLMEndpoints) > 0 {
 			return fmt.Errorf("host %q: llm_endpoints only apply to local hosts — declare them in that host's agent config", h.Name)
+		}
+		seenGPU := map[int]bool{}
+		for _, idx := range h.GPUs {
+			if idx < 0 {
+				return fmt.Errorf("host %q: gpus contains negative index %d", h.Name, idx)
+			}
+			if seenGPU[idx] {
+				return fmt.Errorf("host %q: gpus lists index %d twice", h.Name, idx)
+			}
+			seenGPU[idx] = true
 		}
 	}
 	return nil

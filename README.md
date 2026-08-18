@@ -158,16 +158,26 @@ rejected rather than silently starting the TUI.
 
 ## Configuration
 
-`~/.config/llmtop/config.toml` (path overridable with `--config`). No config
-file at all is equivalent to monitoring only the local machine with defaults.
+`~/.config/llmtop/config.toml` (path overridable with `--config`). A flat
+`~/.config/llmtop.toml` is also accepted when the canonical file does not
+exist — the two are alternatives, never merged. No config file at all is
+equivalent to monitoring only the local machine with defaults.
 
 ```toml
 refresh_ms = 1000        # TUI poll and local sample cadence; on an agent host,
                          # the agent's own sample cadence and history depth
 
+[ui]                      # display-only; never changes what is collected
+show_addresses      = true # false: host titles become host1…, endpoints render
+                           # as :port, error banners drop the host's address
+show_graphics_procs = true # false: hide graphics-class rows in the process
+                           # table (their VRAM stays in the purple mem total)
+
 [[hosts]]                # omit ALL [[hosts]] entries to default to local-only
 name  = "local"          # required on every host entry
 local = true
+gpus  = [1, 0]           # optional: show only these GPU indices, in this order
+                         # (omit for all GPUs in device order)
 
   [[hosts.llm_endpoints]] # optional static additions for this (local) host
   url = "http://127.0.0.1:8081"
@@ -189,6 +199,17 @@ discovery can't see (e.g. containerized servers whose cmdline isn't visible
 from `/proc`) — they only apply to `local` hosts, since they're read by
 whichever process runs the collector for that host. For a remote host,
 declare its `llm_endpoints` in the agent's own config on that machine instead.
+
+`gpus` and the `[ui]` toggles shape only what the TUI reading this config
+draws: collection, history, and what an agent serves are unchanged. A GPU
+left out of `gpus` disappears from the grid along with its process rows; an
+LLM server running only on hidden GPUs moves up into its host's strip
+rather than vanishing. `show_graphics_procs = false` trims Xorg-style rows
+from the process table, but the memory chart still shows their VRAM inside
+the purple total — that series comes from the GPU's own used-memory
+counter, not the table. `show_addresses = false` is the screenshot mode:
+hostnames, IPs, and endpoint hosts are redacted in the display (ports stay,
+so servers remain tellable apart).
 
 ## Key bindings
 

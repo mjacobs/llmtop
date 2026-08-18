@@ -46,7 +46,7 @@ func Run(cfg config.Config, connects []string, demo bool, version string) error 
 	updates := make(chan client.Update, updateChanBuf)
 	refresh := time.Duration(cfg.RefreshMS) * time.Millisecond
 
-	hostNames := hostNamesFor(cfg, connects, demo)
+	view := viewFor(cfg, connects, demo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	startSources(ctx, cfg, connects, demo, updates, refresh, version)
@@ -60,25 +60,33 @@ func Run(cfg config.Config, connects []string, demo bool, version string) error 
 		startSources(ctx, cfg, connects, demo, updates, d, version)
 	}
 
-	app := NewApp(hostNames, updates, refresh, onRefreshChange, version)
+	app := NewApp(view, updates, refresh, onRefreshChange, version)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	_, err := p.Run()
 	cancel()
 	return err
 }
 
-// hostNamesFor computes the fixed, config-order list of host names the App
-// tracks. It never changes across an onRefreshChange restart.
-func hostNamesFor(cfg config.Config, connects []string, demo bool) []string {
+// viewFor computes the fixed, config-order host list and display settings
+// the App tracks. It never changes across an onRefreshChange restart. The
+// UI toggles apply in demo mode too (handy for previewing them without
+// hardware); per-host gpus lists don't — demo hosts aren't config entries.
+func viewFor(cfg config.Config, connects []string, demo bool) ViewConfig {
+	view := ViewConfig{
+		ShowAddresses:     cfg.UI.ShowAddresses,
+		ShowGraphicsProcs: cfg.UI.ShowGraphicsProcs,
+	}
 	if demo {
-		return []string{"demo-rig", "demo-node"}
+		view.Hosts = []HostSpec{{Name: "demo-rig"}, {Name: "demo-node"}}
+		return view
 	}
-	names := make([]string, 0, len(cfg.Hosts)+len(connects))
 	for _, h := range cfg.Hosts {
-		names = append(names, h.Name)
+		view.Hosts = append(view.Hosts, HostSpec{Name: h.Name, Addr: h.Addr, GPUs: h.GPUs})
 	}
-	names = append(names, connects...)
-	return names
+	for _, addr := range connects {
+		view.Hosts = append(view.Hosts, HostSpec{Name: addr, Addr: addr})
+	}
+	return view
 }
 
 // startSources launches one goroutine-based update source per configured
