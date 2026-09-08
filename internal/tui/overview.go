@@ -17,14 +17,15 @@ const sparkWidth = 12
 // (title, host-level servers, banners) and per-GPU detail panels (charts,
 // mapped servers, process table). On a wide terminal every GPU across every
 // host shares one row, each host's strip spanning its own columns; otherwise
-// hosts stack, each wrapping its GPUs into one or two columns. A per-frame
-// solver picks the densest tier that fits the body height, degrading to the
-// low-density COMPACT fallback (one bordered panel per host with compact
-// rows) when space is tight. selected is a flat GPU-panel index in render
-// order; the selected panel gets the active border (in COMPACT, its host
-// panel does).
-func RenderOverview(hosts []*HostState, selected int, width, height int, th Theme) string {
-	return clampHeight(renderOverview(hosts, selected, width, height, th), height)
+// hosts stack, each wrapping its GPUs into the columns the width allows. A
+// per-frame solver picks the densest tier that fits the body height,
+// degrading to the low-density COMPACT fallback (one bordered panel per host
+// with compact rows) when space is tight. pref carries the user's [layout]
+// preference — the zero value is the built-in heuristic. selected is a flat
+// GPU-panel index in render order; the selected panel gets the active border
+// (in COMPACT, its host panel does).
+func RenderOverview(hosts []*HostState, selected int, width, height int, pref LayoutPref, th Theme) string {
+	return clampHeight(renderOverview(hosts, selected, width, height, pref, th), height)
 }
 
 // clampHeight drops any lines beyond height. The solver sizes charts and
@@ -43,20 +44,17 @@ func clampHeight(s string, height int) string {
 	return strings.Join(lines[:height], "\n")
 }
 
-func renderOverview(hosts []*HostState, selected int, width, height int, th Theme) string {
-	hrs := buildHostRenders(hosts)
-	lay := solveLayout(hrs, width, height)
+func renderOverview(hosts []*HostState, selected int, width, height int, pref LayoutPref, th Theme) string {
+	hrs := applySlots(buildHostRenders(hosts), pref.Slots)
+	lay := solveLayout(hrs, width, height, pref)
 	if lay.tier == tierCompact {
-		return renderCompact(hosts, hostOfPanel(hrs, selected), width, th)
+		return renderCompact(hrs, hostOfPanel(hrs, selected), width, th)
 	}
 	if lay.oneRow {
 		return renderOneRow(hrs, lay, selected, width, height, th)
 	}
 
-	panelW := width
-	if lay.cols == 2 {
-		panelW = (width - panelGap) / 2
-	}
+	panelW := gridPanelWidth(width, lay.cols)
 
 	// Surplus below the solved layout: FULL spends it on extra process-table
 	// rows per panel row (remainder becomes inter-host gap lines); CHARTS has
@@ -84,10 +82,7 @@ func renderOverview(hosts []*HostState, selected int, width, height int, th Them
 			blocks = append(blocks, strings.Repeat("\n", gapPerHost-1))
 		}
 		blocks = append(blocks, renderHostStrip(hr, width, 0, th))
-		if hr.h.Snap == nil {
-			continue
-		}
-		n := len(hr.h.Snap.GPUs)
+		n := hostPanelCount(hr)
 		for row := 0; row*lay.cols < n; row++ {
 			contentH := rowMaxFixed(hr, row, lay.cols, lay.tier) + 2*lay.chartH + extra
 			var cells []string
@@ -177,10 +172,10 @@ func hostOfPanel(hrs []hostRender, panel int) int {
 	panel = clampPanel(hrs, panel)
 	seen := 0
 	for hi, hr := range hrs {
-		if hr.h.Snap == nil {
+		if hostPanelCount(hr) == 0 {
 			continue
 		}
-		seen += len(hr.h.Snap.GPUs)
+		seen += hostPanelCount(hr)
 		if panel < seen {
 			return hi
 		}
@@ -190,9 +185,10 @@ func hostOfPanel(hrs []hostRender, panel int) int {
 
 // renderCompact is the COMPACT tier, the low-density fallback: one bordered
 // panel per host with one line per GPU and server, no charts.
-func renderCompact(hosts []*HostState, selectedHost, width int, th Theme) string {
-	panels := make([]string, 0, len(hosts))
-	for i, h := range hosts {
+func renderCompact(hrs []hostRender, selectedHost, width int, th Theme) string {
+	panels := make([]string, 0, len(hrs))
+	for i, hr := range hrs {
+		h := hr.h
 		border := th.Border
 		if i == selectedHost {
 			border = th.BorderActive
@@ -204,7 +200,7 @@ func renderCompact(hosts []*HostState, selectedHost, width int, th Theme) string
 		var lines []string
 		lines = append(lines, titleLine(h, th, inner))
 		if h.Snap != nil {
-			for gi := range h.Snap.GPUs {
+			for _, gi := range hr.order { // render order, not device order
 				lines = append(lines, gpuLine(h, gi, th, inner))
 			}
 			for si := range h.Snap.Servers {

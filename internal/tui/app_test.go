@@ -233,3 +233,48 @@ func TestViewFitsTinyTerminal(t *testing.T) {
 		})
 	}
 }
+
+// TestLayoutKeyCycles: 'l' walks the layout ring and the header names the
+// mode whenever it is not the default heuristic.
+func TestLayoutKeyCycles(t *testing.T) {
+	a, _ := testApp()
+	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	a = m.(*App)
+	if header := strings.SplitN(a.View(), "\n", 2)[0]; strings.Contains(header, "layout") {
+		t.Fatalf("auto layout must stay out of the header: %q", header)
+	}
+
+	for _, want := range []LayoutMode{LayoutOneRow, LayoutStackByHost, LayoutAuto} {
+		m, _ = a.Update(key("l"))
+		a = m.(*App)
+		if a.layout.Mode != want {
+			t.Fatalf("after 'l': mode = %v, want %v", a.layout.Mode, want)
+		}
+	}
+
+	m, _ = a.Update(key("l")) // back to one-row
+	a = m.(*App)
+	if header := strings.SplitN(a.View(), "\n", 2)[0]; header != "llmtop · refresh 1.0s · layout one-row" {
+		t.Fatalf("header = %q, want the layout named", header)
+	}
+}
+
+// TestConfiguredLayoutReachesTheApp: the [layout] preference from the config
+// is the App's starting point, and its column target stays in the ring.
+func TestConfiguredLayoutReachesTheApp(t *testing.T) {
+	ch := make(chan client.Update, 1)
+	a := NewApp(ViewConfig{
+		Hosts:  []HostSpec{{Name: "h1"}},
+		Layout: LayoutPref{Mode: LayoutColumns, Columns: 3},
+	}, ch, time.Second, func(time.Duration) {}, "test")
+	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	a = m.(*App)
+	if header := strings.SplitN(a.View(), "\n", 2)[0]; !strings.Contains(header, "layout columns 3") {
+		t.Fatalf("header = %q, want the configured column target", header)
+	}
+	m, _ = a.Update(key("l"))
+	a = m.(*App)
+	if a.layout.Mode != LayoutAuto || a.layout.Columns != 3 {
+		t.Fatalf("after 'l': %+v, want auto keeping the column target", a.layout)
+	}
+}

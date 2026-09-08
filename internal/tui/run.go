@@ -10,9 +10,11 @@
 //     GPU panel, pause/refresh controls, and the header/footer chrome.
 //   - state.go: HostState — the latest Snapshot per host plus rolling
 //     history rings (util/mem per GPU, gen t/s per server) that feed the charts.
-//   - layout.go: the per-frame density solver. Picks the layout (one row,
-//     stacked grid, or compact) and tier (FULL/CHARTS/COMPACT) that fits the
-//     terminal, counting lines without rendering.
+//   - layout.go: the per-frame density solver plus LayoutPref, the config's
+//     [layout] preference. Picks the arrangement (one row, stacked grid, or
+//     compact) and tier (FULL/CHARTS/COMPACT) that fits the terminal,
+//     counting lines without rendering. The preference steers that choice;
+//     it never overrides the fit.
 //   - overview.go, panel.go: the renderers — host strips, per-GPU panels,
 //     server blocks, process tables, and the compact fallback. Their line
 //     accounting must match the solver exactly (see the IMPORTANT comments).
@@ -75,6 +77,7 @@ func viewFor(cfg config.Config, connects []string, demo bool) ViewConfig {
 	view := ViewConfig{
 		ShowAddresses:     cfg.UI.ShowAddresses,
 		ShowGraphicsProcs: cfg.UI.ShowGraphicsProcs,
+		Layout:            layoutPrefFor(cfg.Layout),
 	}
 	if demo {
 		view.Hosts = []HostSpec{{Name: "demo-rig"}, {Name: "demo-node"}}
@@ -87,6 +90,28 @@ func viewFor(cfg config.Config, connects []string, demo bool) ViewConfig {
 		view.Hosts = append(view.Hosts, HostSpec{Name: addr, Addr: addr})
 	}
 	return view
+}
+
+// layoutPrefFor translates the config's [layout] section into the solver's
+// preference. Config validation has already rejected unknown modes, so an
+// unrecognised one here falls back to the built-in heuristic rather than
+// failing a frame.
+func layoutPrefFor(l config.LayoutConfig) LayoutPref {
+	pref := LayoutPref{Columns: l.Columns}
+	switch l.EffectiveMode() {
+	case config.LayoutModeOneRow:
+		pref.Mode = LayoutOneRow
+	case config.LayoutModeStackByHost:
+		pref.Mode = LayoutStackByHost
+	case config.LayoutModeColumns:
+		pref.Mode = LayoutColumns
+	default:
+		pref.Mode = LayoutAuto
+	}
+	for _, s := range l.Slots {
+		pref.Slots = append(pref.Slots, LayoutSlot{Host: s.Host, GPU: s.GPU})
+	}
+	return pref
 }
 
 // startSources launches one goroutine-based update source per configured

@@ -16,7 +16,16 @@ type hostRender struct {
 	h         *HostState
 	byGPU     map[int][]*model.LLMServer
 	hostLevel []*model.LLMServer
+	// order maps a render position to an index into h.Snap.GPUs. It is the
+	// identity permutation unless the layout config's slot list reorders
+	// this host's panels, and is empty when the host has no snapshot — so
+	// len(order) is always the host's panel count.
+	order []int
 }
+
+// gpuAt returns the GPU a render position refers to. Callers walk positions
+// 0..hostPanelCount-1; only this indirection knows about slot ordering.
+func (hr hostRender) gpuAt(pos int) model.GPU { return hr.h.Snap.GPUs[hr.order[pos]] }
 
 // buildHostRenders computes the server→GPU mapping for every host once per
 // frame.
@@ -25,6 +34,12 @@ func buildHostRenders(hosts []*HostState) []hostRender {
 	for _, h := range hosts {
 		hr := hostRender{h: h}
 		hr.byGPU, hr.hostLevel = mapServersToGPUs(h.Snap)
+		if h.Snap != nil {
+			hr.order = make([]int, len(h.Snap.GPUs))
+			for i := range hr.order {
+				hr.order[i] = i
+			}
+		}
 		hrs = append(hrs, hr)
 	}
 	return hrs
@@ -346,9 +361,10 @@ func panelProcRow(p model.GPUProc, th Theme) string {
 // (showProcs) the GPU PROCESSES rule plus its process table, which absorbs the
 // remaining contentH budget. The process rule follows showProcs just like the
 // table. The panel is exactly contentH+2 terminal rows tall so grid rows stay
-// rectangular; overflow is clipped defensively. Caller guarantees hr.h.Snap != nil
-// and a valid gpuIdx.
-func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProcs, active bool, th Theme) string {
+// rectangular; overflow is clipped defensively. pos is a render position, not
+// a device index — the caller guarantees hr.h.Snap != nil and 0 <= pos <
+// hostPanelCount(hr).
+func renderGPUPanel(hr hostRender, pos, width, contentH, chartH int, showProcs, active bool, th Theme) string {
 	inner := width - 4 // border (1) + padding (1) each side
 	if inner < 1 {
 		inner = 1
@@ -357,7 +373,7 @@ func renderGPUPanel(hr hostRender, gpuIdx, width, contentH, chartH int, showProc
 		contentH = 1
 	}
 	h := hr.h
-	gpu := h.Snap.GPUs[gpuIdx]
+	gpu := hr.gpuAt(pos)
 
 	var lines []string
 	title := fmt.Sprintf("GPU%d %s", gpu.Index, gpu.Name)

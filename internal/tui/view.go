@@ -23,6 +23,9 @@ type ViewConfig struct {
 	Hosts             []HostSpec
 	ShowAddresses     bool
 	ShowGraphicsProcs bool
+	// Layout is the [layout] section's preferred arrangement. The zero
+	// value is the built-in heuristic.
+	Layout LayoutPref
 }
 
 // hostView is a HostSpec resolved against the global toggles, held by each

@@ -31,6 +31,7 @@ type App struct {
 	version    string
 
 	selected      int // flat GPU-panel index in render order
+	layout        LayoutPref
 	paused        bool
 	showHelp      bool
 	width, height int
@@ -40,8 +41,8 @@ type App struct {
 
 func NewApp(view ViewConfig, updates <-chan client.Update, refresh time.Duration, onRefreshChange func(time.Duration), version string) *App {
 	a := &App{updates: updates, refresh: refresh, onRefresh: onRefreshChange,
-		version: version, theme: DefaultTheme(), hostByName: map[string]*HostState{},
-		buildLine: buildDetail(version)}
+		version: version, layout: view.Layout, theme: DefaultTheme(),
+		hostByName: map[string]*HostState{}, buildLine: buildDetail(version)}
 	for _, h := range hostStates(view) {
 		a.hosts = append(a.hosts, h)
 		a.hostByName[h.Name] = h
@@ -117,6 +118,9 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.onRefresh(a.refresh)
 		}
 
+	case "l":
+		a.layout = a.layout.Next()
+
 	case "?":
 		a.showHelp = !a.showHelp
 	}
@@ -135,7 +139,7 @@ func (a *App) panelCount() int {
 	return n
 }
 
-const helpText = "q quit · j/k select · p pause · +/- refresh · ? help"
+const helpText = "q quit · j/k select · p pause · +/- refresh · l layout · ? help"
 
 // buildDetail renders the expanded help's first line: the display version
 // plus whatever build metadata Go stamped into the binary — toolchain,
@@ -184,11 +188,17 @@ var fullHelp = []string{
 	"p            pause/resume updates",
 	"+ / =        halve refresh interval (floor 250ms)",
 	"-            double refresh interval (cap 10s)",
+	"l            cycle layout: auto / one-row / stack-by-host",
 	"?            toggle this help",
 }
 
 func (a *App) View() string {
 	header := fmt.Sprintf("llmtop · refresh %s", fmtRefresh(a.refresh))
+	// The layout is named only when it is not the default heuristic, so the
+	// header stays quiet for the majority of runs.
+	if a.layout.Mode != LayoutAuto {
+		header += " · layout " + a.layout.Label()
+	}
 	if a.paused {
 		header += " ⏸"
 	}
@@ -201,7 +211,7 @@ func (a *App) View() string {
 		footerLines = len(lines)
 	}
 
-	body := RenderOverview(a.hosts, a.selected, a.width, a.height-1-footerLines, a.theme)
+	body := RenderOverview(a.hosts, a.selected, a.width, a.height-1-footerLines, a.layout, a.theme)
 
 	// An empty body (no height budget left) must not cost a line of its
 	// own, and the whole frame never exceeds the terminal — even when the

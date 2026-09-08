@@ -196,3 +196,42 @@ func TestViewFor(t *testing.T) {
 		t.Fatal("demo mode must still honour show_addresses=false")
 	}
 }
+
+func TestLayoutPrefFor(t *testing.T) {
+	for name, tc := range map[string]struct {
+		in   config.LayoutConfig
+		want LayoutPref
+	}{
+		"empty is auto":    {want: LayoutPref{Mode: LayoutAuto}},
+		"one-row":          {in: config.LayoutConfig{Mode: config.LayoutModeOneRow}, want: LayoutPref{Mode: LayoutOneRow}},
+		"stack-by-host":    {in: config.LayoutConfig{Mode: config.LayoutModeStackByHost}, want: LayoutPref{Mode: LayoutStackByHost}},
+		"columns explicit": {in: config.LayoutConfig{Mode: config.LayoutModeColumns, Columns: 3}, want: LayoutPref{Mode: LayoutColumns, Columns: 3}},
+		"columns implied":  {in: config.LayoutConfig{Columns: 2}, want: LayoutPref{Mode: LayoutColumns, Columns: 2}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := layoutPrefFor(tc.in); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("layoutPrefFor(%+v) = %+v, want %+v", tc.in, got, tc.want)
+			}
+		})
+	}
+
+	got := layoutPrefFor(config.LayoutConfig{
+		Mode:  config.LayoutModeOneRow,
+		Slots: []config.LayoutSlot{{Host: "alpha", GPU: 1}, {Host: "bravo", GPU: 0}},
+	})
+	want := LayoutPref{Mode: LayoutOneRow, Slots: []LayoutSlot{{Host: "alpha", GPU: 1}, {Host: "bravo", GPU: 0}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("slots = %+v, want %+v", got, want)
+	}
+}
+
+// TestViewForCarriesLayout pins that the [layout] section reaches the App.
+func TestViewForCarriesLayout(t *testing.T) {
+	cfg := config.Config{Layout: config.LayoutConfig{Mode: config.LayoutModeStackByHost}}
+	if got := viewFor(cfg, nil, false).Layout.Mode; got != LayoutStackByHost {
+		t.Fatalf("view layout mode = %v, want stack-by-host", got)
+	}
+	if got := viewFor(cfg, nil, true).Layout.Mode; got != LayoutStackByHost {
+		t.Fatalf("demo mode must honour [layout] too, got %v", got)
+	}
+}

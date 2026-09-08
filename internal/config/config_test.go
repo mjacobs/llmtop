@@ -184,6 +184,9 @@ func assertDefault(t *testing.T, cfg Config) {
 	if !cfg.UI.ShowAddresses || !cfg.UI.ShowGraphicsProcs {
 		t.Fatalf("default ui = %+v, want both toggles true", cfg.UI)
 	}
+	if cfg.Layout.EffectiveMode() != LayoutModeAuto || len(cfg.Layout.Slots) != 0 {
+		t.Fatalf("default layout = %+v, want the auto heuristic with no slots", cfg.Layout)
+	}
 }
 
 func TestValidationErrors(t *testing.T) {
@@ -222,6 +225,89 @@ func TestLLMEndpointKind(t *testing.T) {
 	for i, k := range want {
 		if eps[i].Kind != k {
 			t.Errorf("[%d] kind = %q, want %q", i, eps[i].Kind, k)
+		}
+	}
+}
+
+func TestLoadLayoutSection(t *testing.T) {
+	p := write(t, `
+[layout]
+mode    = "columns"
+columns = 3
+
+  [[layout.slots]]
+  host = "alpha"
+  gpu  = 1
+
+  [[layout.slots]]
+  host = "alpha"
+  gpu  = 0
+
+  [[layout.slots]]
+  host = "bravo"
+  gpu  = 0
+`)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Layout.EffectiveMode() != LayoutModeColumns || cfg.Layout.Columns != 3 {
+		t.Fatalf("layout = %+v, want columns/3", cfg.Layout)
+	}
+	want := []LayoutSlot{{Host: "alpha", GPU: 1}, {Host: "alpha", GPU: 0}, {Host: "bravo", GPU: 0}}
+	if len(cfg.Layout.Slots) != len(want) {
+		t.Fatalf("slots = %+v, want %+v", cfg.Layout.Slots, want)
+	}
+	for i, w := range want {
+		if cfg.Layout.Slots[i] != w {
+			t.Errorf("slots[%d] = %+v, want %+v", i, cfg.Layout.Slots[i], w)
+		}
+	}
+}
+
+func TestLayoutEffectiveMode(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"absent section":   {body: "", want: LayoutModeAuto},
+		"explicit auto":    {body: "[layout]\nmode = \"auto\"\n", want: LayoutModeAuto},
+		"one row":          {body: "[layout]\nmode = \"one-row\"\n", want: LayoutModeOneRow},
+		"stack by host":    {body: "[layout]\nmode = \"stack-by-host\"\n", want: LayoutModeStackByHost},
+		"columns implied":  {body: "[layout]\ncolumns = 4\n", want: LayoutModeColumns},
+		"columns explicit": {body: "[layout]\nmode = \"columns\"\ncolumns = 2\n", want: LayoutModeColumns},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Load(write(t, tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Layout.EffectiveMode(); got != tc.want {
+				t.Fatalf("EffectiveMode() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLayoutValidationErrors(t *testing.T) {
+	cases := map[string]string{
+		"unknown mode":         "[layout]\nmode = \"diagonal\"\n",
+		"columns without n":    "[layout]\nmode = \"columns\"\n",
+		"negative columns":     "[layout]\ncolumns = -1\n",
+		"columns with one-row": "[layout]\nmode = \"one-row\"\ncolumns = 2\n",
+		"slot without host":    "[layout]\n[[layout.slots]]\ngpu = 0\n",
+		"negative slot gpu":    "[layout]\n[[layout.slots]]\nhost = \"a\"\ngpu = -1\n",
+		"duplicate slot": "[layout]\n" +
+			"[[layout.slots]]\nhost = \"a\"\ngpu = 0\n" +
+			"[[layout.slots]]\nhost = \"a\"\ngpu = 0\n",
+		"host split across runs": "[layout]\n" +
+			"[[layout.slots]]\nhost = \"a\"\ngpu = 0\n" +
+			"[[layout.slots]]\nhost = \"b\"\ngpu = 0\n" +
+			"[[layout.slots]]\nhost = \"a\"\ngpu = 1\n",
+	}
+	for name, body := range cases {
+		if _, err := Load(write(t, body)); err == nil {
+			t.Errorf("%s: want error, got nil", name)
 		}
 	}
 }

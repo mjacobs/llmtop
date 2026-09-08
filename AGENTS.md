@@ -14,6 +14,12 @@ covers the invariants that are easy to break.
   ↔ `renderHostStrip`, `panelFixedContentLines` ↔ `renderGPUPanel`). Tests
   pin this; if you add or remove a line in a renderer, update the counter and
   the tests together.
+- **The layout config is a preference, not a mandate.** `[layout]` reaches
+  the solver as `tui.LayoutPref`; `solveLayout` may still shrink the column
+  count (`stackedCols`) and must still walk the FULL/CHARTS/COMPACT ladder.
+  A slot list only permutes `hostRender.order` — index GPUs through
+  `hr.gpuAt(pos)`, never `hr.h.Snap.GPUs[pos]`, or panels and their line
+  counts drift apart.
 - **Never poll a sleeping llama.cpp server's `/metrics` per tick.** llama.cpp
   counts `/metrics` and `/slots` as activity and they reset the
   `--sleep-idle-seconds` timer (and wake a sleeping server); only `/health` and

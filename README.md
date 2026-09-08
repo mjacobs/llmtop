@@ -185,6 +185,20 @@ show_addresses      = true # false: host titles become host1…, endpoints rende
 show_graphics_procs = true # false: hide graphics-class rows in the process
                            # table (their VRAM stays in the purple mem total)
 
+[layout]                 # preferred arrangement of the GPU panels
+mode    = "auto"         # auto | one-row | stack-by-host | columns
+columns = 3              # target column count: the arrangement under
+                         # mode = "columns", and always an extra stop on the
+                         # `l` key's cycle (columns alone implies that mode)
+
+  [[layout.slots]]       # optional: an explicit panel order
+  host = "gpu-box"       # a host's `name`
+  gpu  = 1               # its GPU device index
+
+  [[layout.slots]]
+  host = "gpu-box"
+  gpu  = 0
+
 [[hosts]]                # omit ALL [[hosts]] entries to default to local-only
 name  = "local"          # required on every host entry
 local = true
@@ -222,6 +236,38 @@ every request to that URL — for a `llama-server` started with its own
 matches a process-scan discovery (same host and port), the key still applies:
 only the URL needs to be listed once, purely to carry the key.
 
+`[layout]` states how you would like the GPU panels arranged; the solver
+treats it as a preference, never a mandate:
+
+- `auto` (the default) puts every GPU across every host in one row when the
+  terminal is wide enough, and otherwise stacks hosts in one or two columns.
+- `one-row` asks for that single row at any width, falling back to the
+  stacked grid when the columns would be too narrow to read.
+- `stack-by-host` never uses the single row: hosts always stack, each
+  wrapping its own GPUs.
+- `columns` stacks hosts at the `columns` target. A target the terminal
+  cannot hold shrinks one column at a time until the panels fit.
+
+Setting `columns` without `mode` selects `columns` mode. Setting it
+alongside `mode = "auto"` keeps the heuristic as the starting arrangement
+while leaving that column target reachable from the `l` key.
+
+Whatever the mode, a terminal too short for the panels still degrades
+through the usual density tiers — full panels, then charts without process
+tables, then the one-line-per-GPU compact rows.
+
+`[[layout.slots]]` is an explicit panel order. Each entry names a host by its
+config `name` and one of its GPUs by device index. Panels the list names
+render first, in the listed order; anything it does not name follows in
+configured order, and a slot naming a host or GPU that is not present today
+is simply ignored. Because the overview groups panels under their host's
+strip, all of one host's slots must sit together in the list — llmtop
+rejects a config that splits them.
+
+Press `l` in the TUI to cycle `auto` → `one-row` → `stack-by-host` (plus
+your configured `columns` target, when you set one) without editing the
+file. The header names the current mode whenever it is not `auto`.
+
 `gpus` and the `[ui]` toggles shape only what the TUI reading this config
 draws: collection, history, and what an agent serves are unchanged. A GPU
 left out of `gpus` disappears from the grid along with its process rows; an
@@ -241,6 +287,7 @@ so servers remain tellable apart).
 | `p` | pause the display (sources keep sampling) |
 | `+` (or `=`) | halve the refresh interval, down to 250 ms |
 | `-` | double the refresh interval, up to 10 s |
+| `l` | cycle the panel layout (see `[layout]` above) |
 | `?` | toggle help |
 | `q` / `Ctrl-C` | quit |
 

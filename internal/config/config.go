@@ -70,11 +70,63 @@ type UIConfig struct {
 	ShowGraphicsProcs bool `toml:"show_graphics_procs"`
 }
 
+// Layout mode names for the [layout] section's `mode` key.
+const (
+	// LayoutModeAuto is the built-in heuristic: one row of panels when the
+	// terminal is wide enough, otherwise hosts stacked in one or two columns.
+	LayoutModeAuto = "auto"
+	// LayoutModeOneRow asks for every GPU panel side by side in one row.
+	LayoutModeOneRow = "one-row"
+	// LayoutModeStackByHost asks for hosts stacked vertically, each wrapping
+	// its own GPUs, and never the one-row arrangement.
+	LayoutModeStackByHost = "stack-by-host"
+	// LayoutModeColumns asks for the stacked grid at a target column count
+	// (the `columns` key).
+	LayoutModeColumns = "columns"
+)
+
+// LayoutSlot names one GPU panel: a host by its config `name` and a GPU by
+// its device index (the same numbering as hosts[].gpus).
+type LayoutSlot struct {
+	Host string `toml:"host"`
+	GPU  int    `toml:"gpu"`
+}
+
+// LayoutConfig is the [layout] section: a *preference* for how the overview
+// arranges GPU panels. It never overrides the fit: the solver shrinks the
+// column count and degrades through the FULL/CHARTS/COMPACT tiers whenever
+// the terminal cannot hold the preferred arrangement.
+type LayoutConfig struct {
+	// Mode is one of the LayoutMode* constants. Empty means auto, unless
+	// Columns is set, which implies "columns".
+	Mode string `toml:"mode"`
+	// Columns is the target column count for LayoutModeColumns.
+	Columns int `toml:"columns"`
+	// Slots is an optional explicit panel order. Panels it names render
+	// first, in the listed order; anything it does not name follows in
+	// configured order. All slots for one host must be contiguous, because
+	// the overview groups panels under their host's strip.
+	Slots []LayoutSlot `toml:"slots"`
+}
+
+// EffectiveMode returns the mode the solver should honour: the configured
+// one, or "columns" when only a column count was given, or "auto".
+func (l LayoutConfig) EffectiveMode() string {
+	if l.Mode != "" {
+		return l.Mode
+	}
+	if l.Columns > 0 {
+		return LayoutModeColumns
+	}
+	return LayoutModeAuto
+}
+
 type Config struct {
 	RefreshMS int          `toml:"refresh_ms"`
 	Hosts     []HostConfig `toml:"hosts"`
 	Agent     AgentConfig  `toml:"agent"`
 	UI        UIConfig     `toml:"ui"`
+	Layout    LayoutConfig `toml:"layout"`
 }
 
 // DefaultPath is ~/.config/llmtop/config.toml; when that file does not
@@ -107,6 +159,7 @@ func Default() Config {
 		Hosts:     []HostConfig{{Name: name, Local: true}},
 		Agent:     AgentConfig{Listen: ":9832"},
 		UI:        UIConfig{ShowAddresses: true, ShowGraphicsProcs: true},
+		// Layout stays zero: EffectiveMode reads that as "auto".
 	}
 }
 
@@ -168,6 +221,9 @@ func validKind(kind string) bool {
 }
 
 func validate(cfg Config) error {
+	if err := validateLayout(cfg.Layout); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for i, h := range cfg.Hosts {
 		if h.Name == "" {
@@ -199,6 +255,54 @@ func validate(cfg Config) error {
 			}
 			seenGPU[idx] = true
 		}
+	}
+	return nil
+}
+
+// validateLayout checks the [layout] section. It deliberately does not
+// require a slot's host to exist: a config shared across machines may name
+// a rig that is not up today, and an unmatched slot is simply ignored when
+// the overview is arranged.
+func validateLayout(l LayoutConfig) error {
+	switch l.Mode {
+	case "", LayoutModeAuto, LayoutModeOneRow, LayoutModeStackByHost, LayoutModeColumns:
+	default:
+		return fmt.Errorf("layout: unknown mode %q (want %q, %q, %q or %q)",
+			l.Mode, LayoutModeAuto, LayoutModeOneRow, LayoutModeStackByHost, LayoutModeColumns)
+	}
+	if l.Columns < 0 {
+		return fmt.Errorf("layout: columns must be positive, got %d", l.Columns)
+	}
+	if l.Mode == LayoutModeColumns && l.Columns == 0 {
+		return fmt.Errorf("layout: mode = %q needs a columns count", LayoutModeColumns)
+	}
+	if l.Columns > 0 && (l.Mode == LayoutModeOneRow || l.Mode == LayoutModeStackByHost) {
+		return fmt.Errorf("layout: columns only applies to mode = %q, not %q", LayoutModeColumns, l.Mode)
+	}
+	seen := map[LayoutSlot]bool{}
+	group := map[string]int{} // host → index of the contiguous run it owns
+	run := -1
+	prev := ""
+	for i, s := range l.Slots {
+		if s.Host == "" {
+			return fmt.Errorf("layout.slots[%d]: host is required", i)
+		}
+		if s.GPU < 0 {
+			return fmt.Errorf("layout.slots[%d]: negative gpu index %d", i, s.GPU)
+		}
+		if seen[s] {
+			return fmt.Errorf("layout.slots[%d]: duplicate slot host %q gpu %d", i, s.Host, s.GPU)
+		}
+		seen[s] = true
+		if s.Host != prev {
+			run++
+			prev = s.Host
+		}
+		if at, ok := group[s.Host]; ok && at != run {
+			return fmt.Errorf("layout.slots[%d]: host %q appears in two separate runs; "+
+				"list a host's GPUs together (the overview groups panels under their host)", i, s.Host)
+		}
+		group[s.Host] = run
 	}
 	return nil
 }

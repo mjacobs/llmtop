@@ -16,7 +16,7 @@ import (
 
 func TestRenderOverviewContent(t *testing.T) {
 	hosts := SampleHostStates()
-	out := RenderOverview(hosts, 0, 100, 60, DefaultTheme())
+	out := RenderOverview(hosts, 0, 100, 60, LayoutPref{}, DefaultTheme())
 
 	for _, want := range []string{
 		"alpha",            // host name
@@ -115,7 +115,7 @@ func TestServerLineMetricsErr(t *testing.T) {
 
 func TestRenderOverviewWidth(t *testing.T) {
 	hosts := SampleHostStates()
-	out := RenderOverview(hosts, 0, 80, 60, DefaultTheme())
+	out := RenderOverview(hosts, 0, 80, 60, LayoutPref{}, DefaultTheme())
 	for _, line := range strings.Split(out, "\n") {
 		if w := lipgloss.Width(line); w > 80 {
 			t.Errorf("line width %d > 80: %q", w, line)
@@ -125,7 +125,7 @@ func TestRenderOverviewWidth(t *testing.T) {
 
 func TestRenderOverviewTwoColumns(t *testing.T) {
 	hosts := SampleHostStates()
-	out := RenderOverview(hosts, 0, 140, 50, DefaultTheme())
+	out := RenderOverview(hosts, 0, 140, 50, LayoutPref{}, DefaultTheme())
 	// alpha's two GPU panels share rows: some line carries both titles.
 	sideBySide := false
 	for _, line := range strings.Split(out, "\n") {
@@ -150,7 +150,7 @@ func TestRenderOverviewTwoColumns(t *testing.T) {
 // on one line, with each host's strip sitting above its own columns.
 func TestRenderOverviewOneRow(t *testing.T) {
 	hosts := SampleHostStates()
-	out := RenderOverview(hosts, 0, 220, 55, DefaultTheme())
+	out := RenderOverview(hosts, 0, 220, 55, LayoutPref{}, DefaultTheme())
 	lines := strings.Split(out, "\n")
 
 	// alpha's two GPUs and bravo's one all sit on the same panel row.
@@ -196,7 +196,7 @@ func TestRenderOverviewOneRow(t *testing.T) {
 
 func TestRenderOverviewSingleColumn(t *testing.T) {
 	hosts := SampleHostStates()
-	out := RenderOverview(hosts, 0, 100, 63, DefaultTheme())
+	out := RenderOverview(hosts, 0, 100, 63, LayoutPref{}, DefaultTheme())
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "GPU0") && strings.Contains(line, "GPU1") {
 			t.Errorf("width 100 must stack panels, found side-by-side line: %q", line)
@@ -207,7 +207,7 @@ func TestRenderOverviewSingleColumn(t *testing.T) {
 func TestRenderOverviewFitsHeight(t *testing.T) {
 	hosts := SampleHostStates()
 	for _, size := range [][2]int{{100, 63}, {140, 40}, {100, 45}, {120, 200}, {220, 55}, {220, 200}, {400, 30}} {
-		out := RenderOverview(hosts, 0, size[0], size[1], DefaultTheme())
+		out := RenderOverview(hosts, 0, size[0], size[1], LayoutPref{}, DefaultTheme())
 		if got := len(strings.Split(out, "\n")); got > size[1] {
 			t.Errorf("%dx%d: rendered %d lines > height", size[0], size[1], got)
 		}
@@ -217,13 +217,13 @@ func TestRenderOverviewFitsHeight(t *testing.T) {
 func TestRenderOverviewCompactParity(t *testing.T) {
 	hosts := SampleHostStates()
 	// Height 20 forces COMPACT (see layout_test tier fixtures).
-	got := RenderOverview(hosts, 0, 100, 20, DefaultTheme())
-	want := renderCompact(hosts, 0, 100, DefaultTheme())
+	got := RenderOverview(hosts, 0, 100, 20, LayoutPref{}, DefaultTheme())
+	want := renderCompact(buildHostRenders(hosts), 0, 100, DefaultTheme())
 	if got != want {
 		t.Errorf("COMPACT tier must match renderCompact\ngot:\n%s\nwant:\n%s", got, want)
 	}
 	// Selecting alpha's second panel (flat index 1) still highlights alpha.
-	got = RenderOverview(hosts, 1, 100, 20, DefaultTheme())
+	got = RenderOverview(hosts, 1, 100, 20, LayoutPref{}, DefaultTheme())
 	if got != want {
 		t.Errorf("panel 1 is still host 0 — compact highlight must not move")
 	}
@@ -244,8 +244,8 @@ func TestRenderOverviewSelection(t *testing.T) {
 	prevProfile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(prevProfile)
-	a := RenderOverview(hosts, 0, 100, 63, th)
-	b := RenderOverview(hosts, 2, 100, 63, th)
+	a := RenderOverview(hosts, 0, 100, 63, LayoutPref{}, th)
+	b := RenderOverview(hosts, 2, 100, 63, LayoutPref{}, th)
 	if a == b {
 		t.Error("moving selection must change the rendered output")
 	}
@@ -266,7 +266,7 @@ func TestRenderOverviewRobustness(t *testing.T) {
 		SampleHostStates(),
 	} {
 		for _, size := range [][2]int{{20, 5}, {5, 3}, {200, 100}} {
-			_ = RenderOverview(hosts, 99, size[0], size[1], th) // must not panic
+			_ = RenderOverview(hosts, 99, size[0], size[1], LayoutPref{}, th) // must not panic
 		}
 	}
 }
@@ -376,15 +376,146 @@ func TestRenderOverviewZeroGPUHostFitsHeight(t *testing.T) {
 		Errors:  []string{"gpu sample: nvml init: no NVIDIA driver found", "proc scan: boom"},
 	}})
 	for _, size := range [][2]int{{100, 8}, {100, 12}, {80, 5}, {200, 6}, {120, 40}} {
-		out := RenderOverview([]*HostState{h}, 0, size[0], size[1], DefaultTheme())
+		out := RenderOverview([]*HostState{h}, 0, size[0], size[1], LayoutPref{}, DefaultTheme())
 		if got := len(strings.Split(out, "\n")); got > size[1] {
 			t.Errorf("%dx%d: rendered %d lines > height", size[0], size[1], got)
 		}
 	}
 	// No body budget at all (terminal shorter than header+footer): no body.
 	for _, height := range []int{0, -3} {
-		if out := RenderOverview([]*HostState{h}, 0, 100, height, DefaultTheme()); out != "" {
+		if out := RenderOverview([]*HostState{h}, 0, 100, height, LayoutPref{}, DefaultTheme()); out != "" {
 			t.Errorf("height %d: want empty body, got %d lines", height, len(strings.Split(out, "\n")))
+		}
+	}
+}
+
+// quadHost is a single host with four GPUs — enough panels for a column
+// target above the built-in two-up maximum to show up in the render.
+func quadHost() []*HostState {
+	h := NewHostState("alpha")
+	gpus := make([]model.GPU, 4)
+	for i := range gpus {
+		gpus[i] = model.GPU{
+			Index: i, UUID: "GPU-" + string(rune('0'+i)), Name: "NVIDIA RTX 4090",
+			UtilPct: 10 * i, MemUsed: uint64(i+1) << 30, MemTotal: 24 << 30,
+			TempC: 40 + i, PowerW: 100 + i,
+		}
+	}
+	h.Apply(client.Update{Host: "alpha", Snapshot: &model.Snapshot{
+		Host:      model.HostInfo{Name: "alpha", Hostname: "alpha", DriverVersion: "580.65.06"},
+		Timestamp: sampleTS,
+		GPUs:      gpus,
+	}})
+	return []*HostState{h}
+}
+
+// TestRenderOverviewColumnsMode: a column target above two is honoured by
+// the renderer, not just the solver.
+func TestRenderOverviewColumnsMode(t *testing.T) {
+	hosts := quadHost()
+	pref := LayoutPref{Mode: LayoutColumns, Columns: 3}
+	out := RenderOverview(hosts, 0, 220, 60, pref, DefaultTheme())
+
+	threeUp := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "GPU0") && strings.Contains(line, "GPU1") && strings.Contains(line, "GPU2") {
+			threeUp = true
+		}
+		if w := lipgloss.Width(line); w > 220 {
+			t.Errorf("line width %d > 220: %q", w, line)
+		}
+	}
+	if !threeUp {
+		t.Errorf("columns 3 must put GPU0-2 on one row\n%s", out)
+	}
+
+	// The default heuristic at the same size stops at two columns.
+	auto := RenderOverview(hosts, 0, 220, 60, LayoutPref{}, DefaultTheme())
+	for _, line := range strings.Split(auto, "\n") {
+		if strings.Contains(line, "GPU0") && strings.Contains(line, "GPU2") {
+			t.Errorf("auto must not render three columns: %q", line)
+		}
+	}
+}
+
+// TestRenderOverviewStackByHostMode: stack-by-host refuses the one-row
+// arrangement even at a width where the heuristic would take it.
+func TestRenderOverviewStackByHostMode(t *testing.T) {
+	hosts := SampleHostStates()
+	out := RenderOverview(hosts, 0, 220, 55, LayoutPref{Mode: LayoutStackByHost}, DefaultTheme())
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "alpha") && strings.Contains(line, "bravo") {
+			t.Errorf("stack-by-host must not share a strip row: %q\n%s", line, out)
+		}
+	}
+	// Auto at the same size does take the one-row arrangement.
+	auto := RenderOverview(hosts, 0, 220, 55, LayoutPref{}, DefaultTheme())
+	if auto == out {
+		t.Error("stack-by-host must differ from the auto layout at 220x55")
+	}
+}
+
+// TestRenderOverviewSlotOrder: the slot list drives the order panels appear
+// in, across hosts as well as within one.
+func TestRenderOverviewSlotOrder(t *testing.T) {
+	hosts := SampleHostStates()
+	pref := LayoutPref{Slots: []LayoutSlot{
+		{Host: "bravo", GPU: 0},
+		{Host: "alpha", GPU: 1},
+		{Host: "alpha", GPU: 0},
+	}}
+	out := RenderOverview(hosts, 0, 220, 55, pref, DefaultTheme())
+
+	var panelRow string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "RTX 4080") && strings.Contains(line, "RTX 4090") {
+			panelRow = line
+		}
+	}
+	if panelRow == "" {
+		t.Fatalf("no row holding every GPU panel\n%s", out)
+	}
+	bravo := strings.Index(panelRow, "RTX 4080")
+	alpha1 := strings.Index(panelRow, "RTX 3090")
+	alpha0 := strings.Index(panelRow, "RTX 4090")
+	if bravo >= alpha1 || alpha1 >= alpha0 {
+		t.Errorf("panel order = bravo %d, alpha GPU1 %d, alpha GPU0 %d; want that order\n%s",
+			bravo, alpha1, alpha0, panelRow)
+	}
+}
+
+// TestRenderOverviewModesFitTheTerminal: whatever the preference asks for,
+// the frame never overruns the height budget or the terminal width, and no
+// combination of mode, slot list, and size panics.
+func TestRenderOverviewModesFitTheTerminal(t *testing.T) {
+	th := DefaultTheme()
+	slots := []LayoutSlot{{Host: "bravo", GPU: 0}, {Host: "alpha", GPU: 1}, {Host: "alpha", GPU: 0}}
+	prefs := []LayoutPref{
+		{},
+		{Mode: LayoutOneRow},
+		{Mode: LayoutStackByHost},
+		{Mode: LayoutColumns, Columns: 1},
+		{Mode: LayoutColumns, Columns: 4},
+		{Mode: LayoutOneRow, Slots: slots},
+		{Mode: LayoutColumns, Columns: 3, Slots: slots},
+	}
+	for _, hosts := range [][]*HostState{nil, SampleHostStates(), quadHost()} {
+		for _, pref := range prefs {
+			for _, size := range [][2]int{{5, 3}, {80, 24}, {100, 45}, {140, 50}, {220, 55}, {400, 200}} {
+				out := RenderOverview(hosts, 1, size[0], size[1], pref, th)
+				if out == "" {
+					continue
+				}
+				lines := strings.Split(out, "\n")
+				if len(lines) > size[1] {
+					t.Errorf("%s at %dx%d: %d lines > height", pref.Label(), size[0], size[1], len(lines))
+				}
+				for _, line := range lines {
+					if w := lipgloss.Width(line); w > size[0] {
+						t.Errorf("%s at %dx%d: line width %d: %q", pref.Label(), size[0], size[1], w, line)
+					}
+				}
+			}
 		}
 	}
 }
