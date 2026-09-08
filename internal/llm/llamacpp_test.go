@@ -311,6 +311,56 @@ func TestSleepIdleGateStopsPollingWhenIdle(t *testing.T) {
 	}
 }
 
+// TestSleepIdleGateArmsFromHintWithoutDetect pins the fix for static
+// llm_endpoints entries (PID 0, no cmdline): Detect is never called for
+// them, so the gate must arm from FetchHint.SleepIdle alone.
+func TestSleepIdleGateArmsFromHintWithoutDetect(t *testing.T) {
+	props := workerProps
+	metrics, hits := idleMetrics, 0
+	srv := switchableServer(t, &props, &metrics, &hits)
+
+	a := NewLlamaCpp()
+	base := time.Unix(5500, 0)
+	// No registerSleepIdle/Detect call: this mirrors a static config
+	// endpoint, which has no process cmdline to detect anything from.
+
+	var last model.LLMServer
+	for i := 0; i < 6; i++ {
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		last = a.Fetch(context.Background(), srv.URL, FetchHint{SleepIdle: true})
+	}
+	if hits != metricsIdleGraceTicks {
+		t.Fatalf("/metrics hit %d times over 6 idle polls, want %d (grace) then gated", hits, metricsIdleGraceTicks)
+	}
+	if last.Status != model.StatusOK {
+		t.Fatalf("status = %q, want ok (awake, just not polled)", last.Status)
+	}
+	if last.Metrics == nil {
+		t.Fatal("Metrics must be retained (cached) while gated")
+	}
+}
+
+// TestSleepIdleGateHintIneffectiveWithoutFlag confirms the hint alone
+// doesn't do anything odd when never set: static endpoints for servers that
+// don't run --sleep-idle-seconds must keep polling unconditionally, same as
+// TestNoGateWithoutSleepIdleFlag but taking the static-endpoint path (no
+// Detect call at all).
+func TestSleepIdleGateHintIneffectiveWithoutFlag(t *testing.T) {
+	props := workerProps
+	metrics, hits := idleMetrics, 0
+	srv := switchableServer(t, &props, &metrics, &hits)
+
+	a := NewLlamaCpp()
+	base := time.Unix(8500, 0)
+	for i := 0; i < 6; i++ {
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		a.Fetch(context.Background(), srv.URL, FetchHint{}) // SleepIdle left false
+	}
+	if hits != 6 {
+		t.Fatalf("/metrics hit %d times, want 6 (no sleep_idle hint -> no gating)", hits)
+	}
+}
+
 func TestSleepIdleGateResumesOnGPUActivity(t *testing.T) {
 	props := workerProps
 	metrics, hits := idleMetrics, 0

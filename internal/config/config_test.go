@@ -31,8 +31,12 @@ local = true
 gpus  = [1, 0]
 
   [[hosts.llm_endpoints]]
-  url     = "http://127.0.0.1:8081"
-  api_key = "sk-local"
+  url        = "http://127.0.0.1:8081"
+  api_key    = "sk-local"
+  sleep_idle = true
+
+  [[hosts.llm_endpoints]]
+  url = "http://127.0.0.1:8082"
 
 [[hosts]]
 name  = "remote-host"
@@ -53,9 +57,15 @@ token  = "s3cret"
 	if len(cfg.Hosts) != 2 || !cfg.Hosts[0].Local || cfg.Hosts[1].Addr != "192.0.2.40:9832" {
 		t.Fatalf("hosts = %+v", cfg.Hosts)
 	}
-	if len(cfg.Hosts[0].LLMEndpoints) != 1 || cfg.Hosts[0].LLMEndpoints[0].URL != "http://127.0.0.1:8081" ||
+	if len(cfg.Hosts[0].LLMEndpoints) != 2 || cfg.Hosts[0].LLMEndpoints[0].URL != "http://127.0.0.1:8081" ||
 		cfg.Hosts[0].LLMEndpoints[0].APIKey != "sk-local" {
 		t.Fatalf("llm_endpoints = %+v", cfg.Hosts[0].LLMEndpoints)
+	}
+	if !cfg.Hosts[0].LLMEndpoints[0].SleepIdle {
+		t.Fatalf("llm_endpoints[0].SleepIdle = false, want true")
+	}
+	if cfg.Hosts[0].LLMEndpoints[1].SleepIdle {
+		t.Fatalf("llm_endpoints[1].SleepIdle = true, want false (default, key omitted)")
 	}
 	if cfg.Agent.Listen != ":9000" {
 		t.Fatalf("agent = %+v", cfg.Agent)

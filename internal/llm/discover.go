@@ -14,6 +14,11 @@ type Discovered struct {
 	// APIKey, when non-empty, is sent as "Authorization: Bearer <APIKey>"
 	// on requests to Endpoint (see StaticEndpoint).
 	APIKey string
+	// SleepIdle mirrors StaticEndpoint.SleepIdle for PID-less entries: the
+	// adapter has no cmdline to detect --sleep-idle-seconds from, so this is
+	// how the sleep-idle gate gets armed for them. Always false for
+	// process-discovered entries (the adapter arms itself from the cmdline).
+	SleepIdle bool
 }
 
 // StaticEndpoint is an LLM server declared in config because the process
@@ -23,17 +28,20 @@ type Discovered struct {
 // reports nothing useful. Empty Kind means llama.cpp, which is what the key
 // defaulted to before engines other than llama.cpp were supported. APIKey is
 // the optional api_key for a server started with llama-server's own
-// --api-key.
+// --api-key. SleepIdle says the server runs with --sleep-idle-seconds, which
+// a URL with no backing process has no cmdline to reveal.
 type StaticEndpoint struct {
-	URL    string
-	Kind   string
-	APIKey string
+	URL       string
+	Kind      string
+	APIKey    string
+	SleepIdle bool
 }
 
 // Discover merges process-scan detections with static config endpoints. A
 // static entry whose URL matches a process-scan hit does not add a second
 // server — it only contributes its APIKey when the scanned entry has none,
-// since cmdline scanning has no way to see a --api-key flag's value.
+// since cmdline scanning has no way to see a --api-key flag's value. Its
+// SleepIdle is not carried over: the scanned server's own cmdline decides.
 func Discover(table map[int32]procs.ProcInfo, adapters []Adapter, static []StaticEndpoint) []Discovered {
 	byEP := map[string]Discovered{}
 	for _, info := range table {
@@ -60,7 +68,7 @@ func Discover(table map[int32]procs.ProcInfo, adapters []Adapter, static []Stati
 			continue
 		}
 		if a := adapterForKind(adapters, se.Kind); a != nil {
-			byEP[ep] = Discovered{Endpoint: ep, Adapter: a, APIKey: se.APIKey}
+			byEP[ep] = Discovered{Endpoint: ep, Adapter: a, APIKey: se.APIKey, SleepIdle: se.SleepIdle}
 		}
 	}
 	out := make([]Discovered, 0, len(byEP))

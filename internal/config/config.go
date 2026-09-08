@@ -27,6 +27,15 @@ type LLMEndpoint struct {
 	// requests to this endpoint — for a llama-server started with its own
 	// --api-key flag.
 	APIKey string `toml:"api_key"`
+	// SleepIdle arms the /metrics sleep-idle gate for this endpoint. Process
+	// discovery infers the gate from a running server's --sleep-idle-seconds
+	// cmdline flag, but a static llm_endpoints entry has no process (PID 0,
+	// no cmdline) to inspect, so it is polled unconditionally unless this is
+	// set — set it when the server behind this URL runs with
+	// --sleep-idle-seconds itself. GPU-activity is unavailable for these
+	// entries too (no PID to watch), so once gated, polling resumes only on
+	// the server's own is_sleeping=false transition.
+	SleepIdle bool `toml:"sleep_idle"`
 }
 
 type HostConfig struct {

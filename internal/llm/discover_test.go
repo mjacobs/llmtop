@@ -14,8 +14,8 @@ func TestDiscover(t *testing.T) {
 	}
 	adapters := []Adapter{NewLlamaCpp()}
 	static := []StaticEndpoint{
-		{URL: "http://127.0.0.1:8080/", APIKey: "sk-scanned"}, // dup of scanned (trailing slash) → keeps PID, adds key
-		{URL: "http://127.0.0.1:8081", APIKey: "sk-static"},   // container server, static-only
+		{URL: "http://127.0.0.1:8080/", APIKey: "sk-scanned", SleepIdle: true}, // dup of scanned (trailing slash) → keeps PID, adds key, not sleep_idle
+		{URL: "http://127.0.0.1:8081", APIKey: "sk-static", SleepIdle: true},   // container server, static-only, sleep_idle set
 	}
 	got := Discover(table, adapters, static)
 	if len(got) != 3 {
@@ -25,6 +25,7 @@ func TestDiscover(t *testing.T) {
 	wantEP := []string{"http://127.0.0.1:8080", "http://127.0.0.1:8081", "http://127.0.0.1:8090"}
 	wantPID := []int32{2298467, 0, 3222}
 	wantKey := []string{"sk-scanned", "sk-static", ""}
+	wantSleepIdle := []bool{false, true, false}
 	for i := range got {
 		if got[i].Endpoint != wantEP[i] || got[i].PID != wantPID[i] {
 			t.Errorf("[%d] = {%s %d}, want {%s %d}", i, got[i].Endpoint, got[i].PID, wantEP[i], wantPID[i])
@@ -32,9 +33,18 @@ func TestDiscover(t *testing.T) {
 		if got[i].APIKey != wantKey[i] {
 			t.Errorf("[%d].APIKey = %q, want %q", i, got[i].APIKey, wantKey[i])
 		}
+		if got[i].SleepIdle != wantSleepIdle[i] {
+			t.Errorf("[%d].SleepIdle = %v, want %v", i, got[i].SleepIdle, wantSleepIdle[i])
+		}
 		if got[i].Adapter == nil {
 			t.Errorf("[%d] adapter must not be nil", i)
 		}
+	}
+	// The scanned duplicate must not inherit the static entry's sleep_idle:
+	// it has a real cmdline of its own (no --sleep-idle-seconds here), and
+	// that's what should govern it.
+	if got[0].SleepIdle {
+		t.Errorf("scanned dup at %s must not inherit static sleep_idle", got[0].Endpoint)
 	}
 }
 

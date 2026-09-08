@@ -50,4 +50,10 @@ func Adapters() []Adapter {
 type FetchHint struct {
 	GPUActive bool
 	APIKey    string
+	// SleepIdle arms the sleep-idle gate for endpoints an adapter cannot
+	// Detect from a cmdline (static config entries, PID 0): it stands in for
+	// the --sleep-idle-seconds flag Detect would otherwise have found. It is
+	// always false for process-discovered endpoints, which arm the gate
+	// themselves from the cmdline.
+	SleepIdle bool
 }

@@ -376,3 +376,31 @@ func TestCollectPassesAPIKeyHint(t *testing.T) {
 		t.Fatalf("APIKey hint = %q, want empty (no api_key configured)", got)
 	}
 }
+
+// TestCollectPassesStaticSleepIdleHint pins the fix for static
+// llm_endpoints entries (PID 0, no cmdline for an adapter to Detect
+// --sleep-idle-seconds from): the collector must carry config's sleep_idle
+// key through Discover into FetchHint so the adapter can arm its gate.
+func TestCollectPassesStaticSleepIdleHint(t *testing.T) {
+	vendor := gpu.NewFake(1)
+	scanner := &procs.Fake{Table: map[int32]procs.ProcInfo{}}
+	ad := &hintAdapter{hints: map[string]llm.FetchHint{}}
+
+	static := []llm.StaticEndpoint{
+		{URL: "http://127.0.0.1:1003", SleepIdle: true},
+		{URL: "http://127.0.0.1:1004"},
+	}
+	c := New("h", vendor, scanner, []llm.Adapter{ad}, static, "test")
+	if err := c.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Collect(context.Background())
+
+	if !ad.hints["http://127.0.0.1:1003"].SleepIdle {
+		t.Fatal("sleep_idle=true endpoint: SleepIdle hint = false, want true")
+	}
+	if ad.hints["http://127.0.0.1:1004"].SleepIdle {
+		t.Fatal("sleep_idle omitted endpoint: SleepIdle hint = true, want false")
+	}
+}

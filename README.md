@@ -192,9 +192,10 @@ gpus  = [1, 0]           # optional: show only these GPU indices, in this order
                          # (omit for all GPUs in device order)
 
   [[hosts.llm_endpoints]] # optional static additions for this (local) host
-  url     = "http://127.0.0.1:8081"
-  kind    = "llama.cpp"  # engine: "llama.cpp" (default), "vllm", "ninfer"
-  api_key = "…"          # optional: sent as "Authorization: Bearer …"
+  url        = "http://127.0.0.1:8081"
+  kind       = "llama.cpp" # engine: "llama.cpp" (default), "vllm", "ninfer"
+  api_key    = "…"         # optional: sent as "Authorization: Bearer …"
+  sleep_idle = true        # optional: this llama-server runs --sleep-idle-seconds
 
 [[hosts]]
 name  = "gpu-box"
@@ -292,14 +293,15 @@ so servers remain tellable apart).
   `[[hosts.llm_endpoints]]` in the config of whichever process collects for
   that machine — the TUI's local host entry when it's the local machine, or
   the agent's own config when it's a remote machine — so `llmtop` polls its
-  HTTP API directly. **Caveat:** static endpoints are polled unconditionally,
-  because without the command line `llmtop` cannot tell that idle sleep is
-  enabled — a static `--sleep-idle-seconds` server will be kept awake. If you
-  need idle sleep for a containerized server, either don't enable it there,
-  or make the process visible to the collector (`docker run --pid=host`,
-  Kubernetes `hostPID: true`) so discovery sees the command line — noting that
-  sharing the host PID namespace is a real reduction in container isolation,
-  so weigh it like any other security tradeoff.
+  HTTP API directly. If that server runs with `--sleep-idle-seconds` itself,
+  set `sleep_idle = true` on its `llm_endpoints` entry: without a command line
+  to read, `llmtop` has no other way to know idle sleep is enabled, and would
+  otherwise poll `/metrics` unconditionally and keep the server awake forever.
+  With `sleep_idle` set, `llmtop` gates `/metrics` the same way it does for a
+  discovered server, except it can't see GPU activity for a process it never
+  found — a PID-less entry can only resume polling once the server itself
+  reports `is_sleeping: false` (some other client woke it), not on GPU use.
+  Leave `sleep_idle` unset for a static server that doesn't idle-sleep.
 - **`--api-key` servers are supported** via each `[[hosts.llm_endpoints]]`
   entry's optional `api_key` (see [Configuration](#configuration) above),
   sent as `Authorization: Bearer <api_key>`. llama.cpp exempts `/health` from its

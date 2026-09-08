@@ -184,6 +184,12 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 	// the gate below (see metricsIdleGraceTicks).
 	st := a.stateFor(endpoint)
 	a.mu.Lock()
+	if hint.SleepIdle && !st.sleepIdle {
+		// No cmdline for this endpoint (static config, PID 0) to have armed
+		// the gate via Detect — the config's sleep_idle key stands in for it.
+		st.sleepIdle = true
+		st.grace = metricsIdleGraceTicks
+	}
 	if !sleepKnown && st.sleeping {
 		// Failed or malformed /props, or a response without is_sleeping:
 		// the sleep state is unknown this poll. Keep treating the server
