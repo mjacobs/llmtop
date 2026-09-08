@@ -32,8 +32,10 @@ Try it without any hardware: `llmtop --demo` renders synthetic data.
 - **A terminal with a UTF-8 font that has braille and box-drawing glyphs**
   (the charts are drawn with braille). True colour is recommended; the UI
   degrades to fewer colours automatically.
-- **To build:** Go 1.26+ and a C toolchain (`gcc` or `clang`). cgo is
-  required for the NVML bindings — see below.
+- **To build:** Go 1.26+. A C toolchain (`gcc` or `clang`) is needed for the
+  NVML bindings, which use cgo — see below. `CGO_ENABLED=0` also builds, but
+  the binary has no NVIDIA GPU support; `--demo` and `--connect` to a remote
+  agent still work.
 
 ## Install
 
@@ -51,12 +53,18 @@ Or with the Go toolchain directly (installs to `$GOBIN` if set, else
 go install github.com/mjacobs/llmtop/cmd/llmtop@latest
 ```
 
-Both need cgo. Go turns cgo off automatically when it cannot find a C
-compiler, and a `CGO_ENABLED=0` build fails with errors like
-`undefined: Return` from `github.com/NVIDIA/go-nvml` — if you see that,
-install `gcc` and the libc headers (`dnf install gcc glibc-devel`,
-`apt install build-essential`) and build again. The NVIDIA driver itself is
-only needed at **runtime**: the binary builds fine on a machine with no GPU.
+Both build cgo-enabled by default, which is what you want for NVIDIA GPU
+support. Go turns cgo off automatically when it cannot find a C compiler; if
+you need GPU data, install `gcc` and the libc headers (`dnf install gcc
+glibc-devel`, `apt install build-essential`) and build again. The NVIDIA
+driver itself is only needed at **runtime**: the binary builds fine on a
+machine with no GPU.
+
+A `CGO_ENABLED=0` build (no C toolchain available, or a minimal container
+image) succeeds too, but the binary has no NVML support at all: it reports
+`nvml: this binary was built with CGO_ENABLED=0 …` instead of GPU data, and
+`llmtop --demo` and `llmtop --connect host:port` work normally since neither
+needs local NVML.
 
 Without a working driver the local host has no GPU panels; its strip carries
 `gpu sample: nvml init: no NVIDIA driver found …` and still lists the

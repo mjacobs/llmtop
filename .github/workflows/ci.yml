@@ -33,3 +33,6 @@ jobs:
 
       - name: fmt-check, vet, lint, test
         run: make check
+
+      - name: build and test without cgo
+        run: make check-nocgo

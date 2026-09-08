@@ -90,6 +90,11 @@ tidy: ## Tidy go.mod / go.sum
 .PHONY: check
 check: fmt-check vet lint test ## Run fmt-check, vet, lint, and tests (CI gate)
 
+.PHONY: check-nocgo
+check-nocgo: ## Build and test with CGO_ENABLED=0 (cgo-free --demo/--connect path)
+	CGO_ENABLED=0 go build $(GOFLAGS) ./...
+	CGO_ENABLED=0 go test $(GOFLAGS) ./...
+
 .PHONY: screenshot
 screenshot: build ## Regenerate docs/demo.png from --demo (needs tmux, freeze, magick, optipng)
 	scripts/demo-screenshot.sh
