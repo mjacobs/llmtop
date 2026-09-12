@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         # The go.mod floor and the current stable release.
-        go: ["1.24", "stable"]
+        go: ["1.26", "stable"]
     name: check (go ${{ matrix.go }})
     steps:
       - uses: actions/checkout@v7
@@ -28,7 +28,7 @@ jobs:
       # `make check` execute the exact same gate.
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12
+          version: v2.13
           install-only: true
 
       - name: fmt-check, vet, lint, test

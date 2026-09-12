@@ -32,7 +32,7 @@ Try it without any hardware: `llmtop --demo` renders synthetic data.
 - **A terminal with a UTF-8 font that has braille and box-drawing glyphs**
   (the charts are drawn with braille). True colour is recommended; the UI
   degrades to fewer colours automatically.
-- **To build:** Go 1.24+ and a C toolchain (`gcc` or `clang`). cgo is
+- **To build:** Go 1.26+ and a C toolchain (`gcc` or `clang`). cgo is
   required for the NVML bindings — see below.
 
 ## Install
