@@ -67,7 +67,7 @@ cover: ## Run tests with a coverage profile and print the total
 	go tool cover -func=$(COVERPROFILE) | tail -1
 
 .PHONY: lint
-lint: ## Run golangci-lint (v2; CI pins v2.12 — see .github/workflows/ci.yml)
+lint: ## Run golangci-lint (v2; CI pins v2.13 — see .github/workflows/ci.yml)
 	golangci-lint run
 
 .PHONY: fmt
