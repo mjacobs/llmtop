@@ -299,3 +299,54 @@ func TestCollectPassesGPUActivityHint(t *testing.T) {
 		t.Fatal("idle PID 101: GPUActive hint = true, want false")
 	}
 }
+
+func TestCollectAttributesServerGPUsThroughChildren(t *testing.T) {
+	// vLLM: the API server (discovered, PID 100) holds no VRAM; its
+	// VLLM::EngineCore child (PID 101) does. The server must be attributed
+	// to GPU 0 via the child, and the child classified as llm. A llama-server
+	// (PID 200) holding its own memory on GPU 1 is attributed directly.
+	vendor := gpu.NewFake(2)
+	vendor.SetProcs([]gpu.ProcSample{
+		{PID: 101, GPUIndex: 0, MemBytes: 2 << 30, SMUtilPct: 100},
+		{PID: 200, GPUIndex: 1, MemBytes: 4 << 30, SMUtilPct: 10},
+		{PID: 300, GPUIndex: 0, MemBytes: 1 << 30, SMUtilPct: -1},
+	})
+	scanner := &procs.Fake{Table: map[int32]procs.ProcInfo{
+		100: {PID: 100, PPID: 1, Comm: "fake-server", Cmdline: []string{"fake-server", "1001"}},
+		101: {PID: 101, PPID: 100, Comm: "VLLM::EngineCor", Cmdline: []string{"VLLM::EngineCore"}},
+		200: {PID: 200, PPID: 1, Comm: "fake-server", Cmdline: []string{"fake-server", "1002"}},
+		300: {PID: 300, PPID: 1, Comm: "onnx-runner"},
+	}}
+	ad := echoAdapter{srv: model.LLMServer{Kind: "fake", Status: model.StatusOK}}
+	c := New("h", vendor, scanner, []llm.Adapter{ad}, []string{"http://127.0.0.1:1003"}, "0.1.0")
+	if err := c.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	s := c.Collect(context.Background())
+
+	byEP := map[string]model.LLMServer{}
+	for _, srv := range s.Servers {
+		byEP[srv.Endpoint] = srv
+	}
+	if got := byEP["http://127.0.0.1:1001"].GPUs; len(got) != 1 || got[0] != 0 {
+		t.Fatalf("vllm-style server GPUs = %v, want [0] (via EngineCore child)", got)
+	}
+	if got := byEP["http://127.0.0.1:1002"].GPUs; len(got) != 1 || got[0] != 1 {
+		t.Fatalf("direct server GPUs = %v, want [1]", got)
+	}
+	if got := byEP["http://127.0.0.1:1003"].GPUs; got != nil {
+		t.Fatalf("static (PID 0) server GPUs = %v, want none", got)
+	}
+	byPID := map[int32]model.GPUProc{}
+	for _, p := range s.Procs {
+		byPID[p.PID] = p
+	}
+	if byPID[101].Class != model.ProcLLM || byPID[300].Class != model.ProcOther {
+		t.Fatalf("classes: engine=%q other=%q", byPID[101].Class, byPID[300].Class)
+	}
+	if s.GPUs[0].LLMMemBytes != 2<<30 {
+		t.Fatalf("GPU0 LLMMemBytes = %d, want the engine's 2G", s.GPUs[0].LLMMemBytes)
+	}
+}

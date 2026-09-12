@@ -112,10 +112,10 @@ func startSources(ctx context.Context, cfg config.Config, connects []string, dem
 // startLocalHost builds a collector for a local host config entry. If the
 // GPU vendor fails to initialize (no NVML, no driver, ...), the collector
 // is started anyway: every snapshot then carries the GPU error in its Errors
-// (rendered in the host strip) while processes and llama.cpp servers are
+// (rendered in the host strip) while processes and LLM servers are
 // still reported — the same degraded mode `llmtop agent` runs in.
 func startLocalHost(ctx context.Context, h config.HostConfig, updates chan<- client.Update, interval time.Duration, version string) {
-	col := collector.New(h.Name, gpu.NewNVML(), procs.NewProcFS(), []llm.Adapter{llm.NewLlamaCpp()}, endpoints(h), version)
+	col := collector.New(h.Name, gpu.NewNVML(), procs.NewProcFS(), llm.Adapters(), endpoints(h), version)
 	_ = col.Init() // a failed GPU init is reported per tick via Snapshot.Errors
 	client.StartLocal(ctx, h.Name, col, interval, updates)
 }

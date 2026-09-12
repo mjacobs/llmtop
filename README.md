@@ -4,7 +4,9 @@ A [btop](https://github.com/aristocratos/btop)-style terminal UI for LLM
 inference servers and the NVIDIA GPUs under them. `llmtop` charts per-GPU
 utilization and memory the way [nvtop](https://github.com/Syllo/nvtop) does,
 and on top of that shows what your
-[llama.cpp](https://github.com/ggml-org/llama.cpp) servers are doing — model
+[llama.cpp](https://github.com/ggml-org/llama.cpp),
+[vLLM](https://github.com/vllm-project/vllm) and
+[NInfer](https://github.com/Neroued/ninfer) servers are doing — model
 loaded, prompt and generation tokens/sec, KV-cache usage, slot occupancy — with
 GPU usage split between LLM serving and everything else (compositor,
 browsers, other compute). It watches the local machine and, through a small
@@ -16,15 +18,17 @@ Try it without any hardware: `llmtop --demo` renders synthetic data.
 
 ## Requirements
 
-- **Linux.** Process and llama.cpp discovery read `/proc`; the agent ships as
+- **Linux.** Process and server discovery read `/proc`; the agent ships as
   a systemd user unit. There is no macOS or Windows support.
 - **NVIDIA GPUs** with the proprietary driver installed (`libnvidia-ml.so.1`,
   i.e. NVML). No AMD, Intel, or Apple GPU support. Runs as an unprivileged
   user; no root needed. Without a driver you still get `--demo`, remote
-  hosts, and the local process/llama.cpp view — just no GPU data.
-- **llama.cpp `llama-server`** for the serving stats. The GPU-usage breakdown
-  also counts vLLM, SGLang, and Ollama processes as "LLM", but throughput,
-  KV-cache, and slot details are read from llama.cpp only.
+  hosts, and the local process/server view — just no GPU data.
+- **llama.cpp `llama-server`, vLLM (`vllm serve`) or NInfer
+  (`ninfer-serve`)** for the serving view. The GPU-usage breakdown also counts
+  SGLang and Ollama processes as "LLM", but throughput, KV-cache, and slot
+  details are read from llama.cpp and vLLM only; NInfer has no metrics
+  endpoint, so it shows model, context length, and concurrency limit.
 - **A terminal with a UTF-8 font that has braille and box-drawing glyphs**
   (the charts are drawn with braille). True colour is recommended; the UI
   degrades to fewer colours automatically.
@@ -56,8 +60,8 @@ only needed at **runtime**: the binary builds fine on a machine with no GPU.
 
 Without a working driver the local host has no GPU panels; its strip carries
 `gpu sample: nvml init: no NVIDIA driver found …` and still lists the
-machine's llama.cpp servers. `llmtop agent` logs the same warning at startup
-and keeps serving process and llama.cpp data the same way.
+machine's LLM servers. `llmtop agent` logs the same warning at startup
+and keeps serving process and server data the same way.
 
 `make build` produces `./llmtop` in the checkout without installing; `make
 uninstall` removes the installed binary. `make help` lists all targets.
@@ -65,7 +69,7 @@ uninstall` removes the installed binary. `make help` lists all targets.
 ## Quick start
 
 ```bash
-llmtop                        # monitor this machine: auto-detected GPUs + llama.cpp servers
+llmtop                        # monitor this machine: auto-detected GPUs + llama.cpp/vLLM/NInfer servers
 llmtop --demo                 # synthetic data, no GPU or config required
 llmtop --connect host:9832    # also watch one remote llmtop agent, ad hoc
 llmtop version                # print the version (also: llmtop --version)
@@ -228,13 +232,14 @@ so servers remain tellable apart).
   with utilization and memory history charts. The `(llm …)` part of each
   caption is the share attributed to LLM processes.
 - A GPU process counts as **LLM** if it is (or descends from) a discovered
-  `llama-server`, or its name contains `llama-server`, `vllm`, `sglang`, or
-  `ollama`. Everything else is graphics (compositor, X/Wayland) or other
-  compute.
+  llama.cpp, vLLM or NInfer server, or its name contains `llama-server`,
+  `vllm`, `sglang`, `ollama`, or `ninfer`. Everything else is graphics
+  (compositor, X/Wayland) or other compute.
 - `gen 42.3 t/s` is a measured generation rate. llama.cpp only advances its
   token counters when a request completes, so between completions the rate is
   amortised over the last request; while a request is in flight, `gen ~40 t/s`
-  (with a tilde) is a live estimate derived from the decode counter.
+  (with a tilde) is a live estimate derived from the decode counter. vLLM
+  advances its counters every engine step, so its rate is live throughout.
 - A server can be `ok`, `loading` (process up, model not resident yet),
   `sleeping` (see below), or `unreachable`.
 
@@ -281,6 +286,49 @@ so servers remain tellable apart).
   a key; a server reachable from the network should keep its key (or sit
   behind an authenticating proxy) and accept the reduced display for now.
 
+## vLLM notes
+
+- **Discovery** is automatic: `llmtop` recognises `vllm serve …` (the console
+  script, usually seen as `python …/bin/vllm serve`) and
+  `python -m vllm.entrypoints.openai.api_server …` processes and parses
+  `--host`/`--port` from the command line (default port 8000) under the same
+  local-bind rule as llama.cpp. Servers on a Unix socket (`--uds`) are not
+  polled. The GPU process that holds VRAM is typically a child
+  (`VLLM::EngineCore`); the serving block is shown on that GPU anyway.
+- **What is read:** `/health` for liveness, `/v1/models` for the served model
+  name and `max_model_len` (shown as `ctx`), and `/metrics` for prompt and
+  generation tokens/sec, running and waiting requests (`slots` / `queue`),
+  KV-cache usage, and the engine's sleep state. `slots N/M` uses
+  `--max-num-seqs` from the command line as `M`. Unlike llama.cpp, vLLM's
+  `/metrics` has no side effects, so it is polled every tick.
+- **Status:** `/health` 503 (engine still starting, or temporarily
+  unavailable) shows as `loading`, same as llama.cpp. A server put to sleep
+  with `--enable-sleep-mode` and `POST /sleep` shows as `sleeping`.
+- **`--api-key`:** vLLM only guards `/v1/*`, so a keyed server still reports
+  status, throughput and its model name (from the `model_name` metric label);
+  only the context length is missing. `--disable-log-stats` turns the
+  Prometheus stats off, and the server then shows a `metrics disabled` hint.
+
+## NInfer notes
+
+- **Discovery** is automatic: `llmtop` recognises `ninfer-serve …` processes
+  and parses `--host`/`--port` from the command line (default
+  `127.0.0.1:8080`) under the same local-bind rule as llama.cpp. The server
+  holds its VRAM in its own process, so the block appears on that GPU.
+- **What is read:** `/health` for liveness and `/v1/models` for the served
+  model id and `max_model_len` (shown as `ctx`). `slots N` is
+  `--max-concurrency` from the command line. NInfer serves no `/metrics`
+  endpoint (its throughput report goes to the process log via
+  `--log-stats-interval-ms`), so there are no tokens/sec, KV-cache, queue or
+  live slot-occupancy figures; the detail line says so instead.
+- **Status:** `ninfer-serve` loads the model before it starts listening, so a
+  starting server is `unreachable` until it is ready; there is no `loading`
+  phase to observe. Its process is still listed on the GPU while it loads.
+- **`--api-key`:** only `/health` is exempt, so a keyed server reports status
+  plus the model id and `--max-context` taken from its command line. Without
+  `--model-id`, the command line yields the container file's basename until
+  `/v1/models` answers with the container's embedded model id.
+
 ## Agent security
 
 `llmtop agent` serves read-only JSON telemetry over plain HTTP — no TLS. It
@@ -291,8 +339,8 @@ Be aware of the defaults: `listen = ":9832"` binds **every interface**, and
 with no token configured the API is **unauthenticated** — anyone who can reach
 the port can read the host's hostname, driver version, GPU models and UUIDs,
 the PID and name of every process using a GPU, and the endpoints and model
-names of your llama.cpp servers. The agent prints a warning at startup in that
-configuration.
+names of your llama.cpp, vLLM and NInfer servers. The agent prints a warning
+at startup in that configuration.
 
 What to do about it: if only this machine needs the data, bind loopback
 (`--listen 127.0.0.1:9832`) — that is the only listen address that actually

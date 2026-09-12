@@ -18,13 +18,15 @@ covers the invariants that are easy to break.
   counts `/metrics` and `/slots` as activity and they reset the
   `--sleep-idle-seconds` timer (and wake a sleeping server); only `/health` and
   `/props` bypass its task queue. `internal/llm/llamacpp.go` gates `/metrics`
-  accordingly — keep that when adding endpoint calls.
+  accordingly — keep that when adding endpoint calls. vLLM's `/metrics` has no
+  such side effect and is polled every tick.
 - **Throughput is anchor-amortised.** llama.cpp token counters move at request
   completion, so `internal/llm/rate.go` emits rates only when a counter
   changes and shows a decode-counter estimate (`gen ~N t/s`) in between. Its
   tests encode the intended behaviour; read them before changing it.
-- **Untrusted strings** (llama.cpp `/props` values, other processes' cmdlines,
-  remote agent payloads) are sanitised in the collector and client
+- **Untrusted strings** (llama.cpp `/props` values, vLLM and NInfer
+  `/v1/models`, vLLM metric labels, other processes' cmdlines, remote agent
+  payloads) are sanitised in the collector and client
   (`model.Snapshot.Sanitize`); keep new fields covered.
 - **Fixtures use reserved names only:** hosts `alpha`/`bravo`/`charlie`,
   addresses in `192.0.2.0/24` or loopback, `example.com` domains.

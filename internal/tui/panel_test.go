@@ -22,6 +22,7 @@ func mappingSnap() *model.Snapshot {
 			{PID: 200, Name: "llama-server", GPUIndex: 0, Class: model.ProcLLM},
 			{PID: 200, Name: "llama-server", GPUIndex: 1, Class: model.ProcLLM},
 			{PID: 300, Name: "chrome", GPUIndex: 1, Class: model.ProcGraphics},
+			{PID: 401, Name: "VLLM::EngineCor", GPUIndex: 1, Class: model.ProcLLM},
 		},
 		Servers: []model.LLMServer{
 			{Endpoint: "http://h:8081", PID: 100},                 // → GPU0
@@ -29,6 +30,7 @@ func mappingSnap() *model.Snapshot {
 			{Endpoint: "http://h:8080", Role: "router", PID: 100}, // router → host
 			{Endpoint: "http://h:8083", PID: 999},                 // no proc → host
 			{Endpoint: "http://h:8084"},                           // no PID → host
+			{Endpoint: "http://h:8085", PID: 400, GPUs: []int{1}}, // vLLM: GPU held by child 401 → GPU1 via GPUs
 		},
 	}
 }
@@ -39,8 +41,11 @@ func TestMapServersToGPUs(t *testing.T) {
 	if got := len(byGPU[0]); got != 2 {
 		t.Errorf("GPU0 servers = %d, want 2 (:8081 and :8082)", got)
 	}
-	if got := len(byGPU[1]); got != 1 {
-		t.Errorf("GPU1 servers = %d, want 1 (:8082 spans both GPUs)", got)
+	if got := len(byGPU[1]); got != 2 {
+		t.Errorf("GPU1 servers = %d, want 2 (:8082 spans both GPUs, :8085 via GPUs)", got)
+	}
+	if got := byGPU[1][1].Endpoint; got != "http://h:8085" {
+		t.Errorf("GPU1[1] = %s, want :8085 (collector-attributed GPUs beat the PID match)", got)
 	}
 	if byGPU[0][0].Endpoint != "http://h:8081" || byGPU[0][1].Endpoint != "http://h:8082" {
 		t.Errorf("GPU0 order/content wrong: %v, %v", byGPU[0][0].Endpoint, byGPU[0][1].Endpoint)
@@ -53,8 +58,29 @@ func TestMapServersToGPUs(t *testing.T) {
 	for _, s := range byGPU {
 		total += len(s)
 	}
-	if total != 6 { // 5 servers, one counted twice (spans 2 GPUs)
-		t.Errorf("total placements = %d, want 6", total)
+	if total != 7 { // 6 servers, one counted twice (spans 2 GPUs)
+		t.Errorf("total placements = %d, want 7", total)
+	}
+}
+
+func TestMapServersToGPUsHiddenGPUFallsToHost(t *testing.T) {
+	// GPU 0 filtered out of the snapshot: a vLLM server attributed only to
+	// that GPU must not vanish — it moves to the host strip.
+	snap := &model.Snapshot{
+		GPUs: []model.GPU{{Index: 1}},
+		Procs: []model.GPUProc{
+			{PID: 401, Name: "VLLM::EngineCor", GPUIndex: 1, Class: model.ProcLLM},
+		},
+		Servers: []model.LLMServer{
+			{Endpoint: "http://h:8085", PID: 400, GPUs: []int{0}},
+		},
+	}
+	byGPU, hostLevel := mapServersToGPUs(snap)
+	if len(byGPU[0]) != 0 || len(byGPU[1]) != 0 {
+		t.Errorf("hidden-GPU server must not stay on a GPU panel, byGPU=%v", byGPU)
+	}
+	if len(hostLevel) != 1 || hostLevel[0].Endpoint != "http://h:8085" {
+		t.Fatalf("host-level = %v, want the vLLM server", hostLevel)
 	}
 }
 
@@ -556,6 +582,36 @@ func TestServerLine2StatusHints(t *testing.T) {
 				t.Errorf("serverLine2 = %q, must not contain %q", got, tc.notWant)
 			}
 		})
+	}
+}
+
+func TestServerLine2VLLMMetricsHint(t *testing.T) {
+	th := DefaultTheme()
+	srv := &model.LLMServer{Kind: "vllm", Endpoint: "http://h:8000", Status: model.StatusOK}
+	got := serverLine2(srv, th)
+	if !strings.Contains(got, "start vllm without --disable-log-stats") {
+		t.Fatalf("serverLine2 = %q, want vLLM metrics hint", got)
+	}
+	if strings.Contains(got, "llama-server") {
+		t.Fatalf("serverLine2 = %q, must not tell a vLLM user to start llama-server", got)
+	}
+}
+
+func TestServerLine2NInferHint(t *testing.T) {
+	th := DefaultTheme()
+	srv := &model.LLMServer{Kind: "ninfer", Endpoint: "http://h:8002", Status: model.StatusOK, CtxSize: 240000, SlotsTotal: 2}
+	got := serverLine2(srv, th)
+	for _, want := range []string{"ctx 240000", "slots 2", "no /metrics endpoint"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("serverLine2 = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, "llama-server") || strings.Contains(got, "--metrics") {
+		t.Fatalf("serverLine2 = %q, must not tell a ninfer user to pass a llama.cpp flag", got)
+	}
+	bare := serverLine2(&model.LLMServer{Kind: "ninfer", Status: model.StatusOK}, th)
+	if strings.Contains(bare, "ctx") || strings.Contains(bare, "slots") {
+		t.Fatalf("serverLine2 without ctx/slots = %q, must omit zero values", bare)
 	}
 }
 

@@ -74,7 +74,7 @@ func main() {
 }
 
 const rootUsage = `Usage:
-  llmtop [flags]          monitor GPUs and llama.cpp servers (TUI)
+  llmtop [flags]          monitor GPUs and LLM servers (TUI)
   llmtop agent [flags]    serve this host's telemetry over HTTP
   llmtop version          print the version
 
@@ -194,7 +194,7 @@ func runAgent(args []string) error {
 	}
 	name, _ := os.Hostname()
 	col := collector.New(name, gpu.NewNVML(), procs.NewProcFS(),
-		[]llm.Adapter{llm.NewLlamaCpp()}, static, versionString())
+		llm.Adapters(), static, versionString())
 	// A host without a working NVIDIA driver still has processes and LLM
 	// servers worth reporting, and exiting here would make a service
 	// manager restart-loop the agent. Keep serving; each snapshot carries

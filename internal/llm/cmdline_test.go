@@ -48,3 +48,58 @@ func TestEndpointFromCmdline(t *testing.T) {
 		}
 	}
 }
+
+func TestVLLMEndpointFromCmdline(t *testing.T) {
+	prev := isLocalIP
+	isLocalIP = func(ip net.IP) bool { return ip.Equal(net.ParseIP("192.0.2.5")) }
+	defer func() { isLocalIP = prev }()
+
+	cases := []struct {
+		name string
+		argv []string
+		want string
+		ok   bool
+	}{
+		{"venv entrypoint", []string{"/opt/venv/bin/python", "/opt/venv/bin/vllm", "serve", "Qwen/Qwen2-7B", "--host", "0.0.0.0", "--port", "8082"}, "http://127.0.0.1:8082", true},
+		{"bare vllm serve defaults", []string{"vllm", "serve", "org/model"}, "http://127.0.0.1:8000", true},
+		{"equals form local address", []string{"vllm", "serve", "m", "--host=192.0.2.5", "--port=9000"}, "http://192.0.2.5:9000", true},
+		{"module api_server", []string{"python", "-m", "vllm.entrypoints.openai.api_server", "--port", "8001"}, "http://127.0.0.1:8001", true},
+		{"enginecore is not the HTTP server", []string{"VLLM::EngineCore"}, "", false},
+		{"vllm bench is not serve", []string{"vllm", "bench", "serve", "--port", "8082"}, "", false},
+		{"unix socket rejected", []string{"vllm", "serve", "m", "--uds", "/run/vllm.sock"}, "", false},
+		{"foreign address rejected", []string{"vllm", "serve", "m", "--host=198.51.100.7", "--port", "8000"}, "", false},
+		{"llama-server is not vllm", []string{"llama-server", "--port", "8080"}, "", false},
+	}
+	for _, c := range cases {
+		got, ok := VLLMEndpointFromCmdline(c.argv)
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: VLLMEndpointFromCmdline(%v) = (%q, %v), want (%q, %v)", c.name, c.argv, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestNInferEndpointFromCmdline(t *testing.T) {
+	prev := isLocalIP
+	isLocalIP = func(ip net.IP) bool { return ip.Equal(net.ParseIP("192.0.2.5")) }
+	defer func() { isLocalIP = prev }()
+
+	cases := []struct {
+		name string
+		argv []string
+		want string
+		ok   bool
+	}{
+		{"build tree binary", []string{"/opt/ninfer/build/apps/ninfer-serve", "/data/m.ninfer", "--model-id", "m", "--host", "0.0.0.0", "--port", "8002"}, "http://127.0.0.1:8002", true},
+		{"bare defaults", []string{"ninfer-serve", "m.ninfer"}, "http://127.0.0.1:8080", true},
+		{"equals form local address", []string{"ninfer-serve", "m.ninfer", "--host=192.0.2.5", "--port=9000"}, "http://192.0.2.5:9000", true},
+		{"foreign address rejected", []string{"ninfer-serve", "m.ninfer", "--host=198.51.100.7"}, "", false},
+		{"ninfer cli is not the server", []string{"ninfer-cli", "--port", "8002"}, "", false},
+		{"llama-server is not ninfer", []string{"llama-server", "--port", "8080"}, "", false},
+	}
+	for _, c := range cases {
+		got, ok := NInferEndpointFromCmdline(c.argv)
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: NInferEndpointFromCmdline(%v) = (%q, %v), want (%q, %v)", c.name, c.argv, got, ok, c.want, c.ok)
+		}
+	}
+}

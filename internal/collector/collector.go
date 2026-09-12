@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -128,6 +129,7 @@ func (c *Collector) Collect(ctx context.Context) model.Snapshot {
 
 	llmMem := map[int]uint64{}
 	llmUtil := map[int]int{}
+	serverGPUs := map[int32]map[int]bool{} // server PID → GPU indices its tree holds
 	for _, k := range order {
 		p := merged[k]
 		name := fmt.Sprintf("pid %d", p.PID)
@@ -144,6 +146,24 @@ func (c *Collector) Collect(ctx context.Context) model.Snapshot {
 			if p.SMUtilPct > 0 {
 				llmUtil[p.GPUIndex] += p.SMUtilPct
 			}
+		}
+		if owner, ok := procs.Owner(p.PID, table, llmPIDs); ok {
+			if serverGPUs[owner] == nil {
+				serverGPUs[owner] = map[int]bool{}
+			}
+			serverGPUs[owner][p.GPUIndex] = true
+		}
+	}
+	// A server is shown under the GPUs its process tree holds — the process
+	// itself, or a child such as vLLM's engine process (model.LLMServer.GPUs).
+	for i := range s.Servers {
+		srv := &s.Servers[i]
+		if held := serverGPUs[srv.PID]; srv.PID != 0 && len(held) > 0 {
+			srv.GPUs = make([]int, 0, len(held))
+			for gi := range held {
+				srv.GPUs = append(srv.GPUs, gi)
+			}
+			sort.Ints(srv.GPUs)
 		}
 	}
 

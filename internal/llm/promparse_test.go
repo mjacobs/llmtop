@@ -47,3 +47,30 @@ func TestParsePromText(t *testing.T) {
 		t.Error("garbage line must be skipped")
 	}
 }
+
+func TestParsePromTextLabeled(t *testing.T) {
+	body := []byte(`# HELP vllm:prompt_tokens_total Number of prefill tokens processed.
+vllm:prompt_tokens_total{engine="0",model_name="qwen"} 10.0
+vllm:prompt_tokens_total{engine="1",model_name="qwen"} 15.0
+vllm:kv_cache_usage_perc{engine="0",model_name="qwen"} 0.25
+vllm:kv_cache_usage_perc{engine="1",model_name="qwen"} 0.75
+vllm:engine_sleep_state{engine="0",sleep_state="awake"} 1.0
+`)
+	m := ParsePromText(body)
+	if m["vllm:prompt_tokens_total"] != 25 {
+		t.Errorf("summed prompt tokens = %v, want 25", m["vllm:prompt_tokens_total"])
+	}
+	samples := ParsePromSamples(body)
+	if v, ok := promMean(samples, "vllm:kv_cache_usage_perc"); !ok || v != 0.5 {
+		t.Errorf("mean kv = %v ok=%v, want 0.5", v, ok)
+	}
+	found := false
+	for _, s := range samples {
+		if s.Name == "vllm:engine_sleep_state" && s.Labels["sleep_state"] == "awake" && s.Value == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("sleep_state label must be preserved")
+	}
+}

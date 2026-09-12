@@ -30,15 +30,23 @@ func buildHostRenders(hosts []*HostState) []hostRender {
 	return hrs
 }
 
-// mapServersToGPUs assigns each server to every GPU its process runs on,
-// matching LLMServer.PID against Procs[].GPUIndex (a tensor-split server
-// appears under each GPU it touches). Servers with a router role, no PID,
-// or a PID absent from Procs are host-level. Order within each bucket
-// follows Snapshot.Servers order; no server is ever dropped.
+// mapServersToGPUs assigns each server to every GPU its process tree runs
+// on: LLMServer.GPUs when the collector filled it (it covers children such as
+// vLLM's engine process), else LLMServer.PID matched against
+// Procs[].GPUIndex for snapshots from agents that predate the field. A
+// tensor-split server appears under each GPU it touches. Servers with a
+// router role, no PID, or no GPU either way are host-level. GPU indexes that
+// are not in this snapshot (filtered/hidden GPUs) are dropped, so a server
+// running only on hidden GPUs falls through to the host strip. Order within
+// each bucket follows Snapshot.Servers order; no server is ever dropped.
 func mapServersToGPUs(snap *model.Snapshot) (byGPU map[int][]*model.LLMServer, hostLevel []*model.LLMServer) {
 	byGPU = map[int][]*model.LLMServer{}
 	if snap == nil {
 		return byGPU, nil
+	}
+	visible := map[int]bool{}
+	for _, g := range snap.GPUs {
+		visible[g.Index] = true
 	}
 	pidGPUs := map[int32][]int{}
 	seen := map[[2]int64]bool{} // dedupe (pid, gpu): Procs may repeat a pair
@@ -51,7 +59,21 @@ func mapServersToGPUs(snap *model.Snapshot) (byGPU map[int][]*model.LLMServer, h
 	}
 	for si := range snap.Servers {
 		srv := &snap.Servers[si]
-		gpus := pidGPUs[srv.PID]
+		gpus := srv.GPUs
+		if len(gpus) == 0 {
+			gpus = pidGPUs[srv.PID]
+		}
+		if len(visible) == 0 {
+			gpus = nil
+		} else {
+			var kept []int
+			for _, gi := range gpus {
+				if visible[gi] {
+					kept = append(kept, gi)
+				}
+			}
+			gpus = kept
+		}
 		if srv.Role == "router" || srv.PID == 0 || len(gpus) == 0 {
 			hostLevel = append(hostLevel, srv)
 			continue
@@ -159,7 +181,32 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 		parts = append(parts, fmt.Sprintf("ctx %d", srv.CtxSize))
 		return "  " + th.LLM.Render(strings.Join(parts, " · "))
 	default:
-		return "  " + th.Dim.Render("metrics disabled — start llama-server with --metrics")
+		return "  " + th.Dim.Render(metricsOffHint(srv))
+	}
+}
+
+// metricsOffHint is the detail-line text for a reachable, resident server
+// that exposes no metrics, worded for the engine that runs it: llama.cpp
+// serves /metrics only with --metrics; vLLM serves it unless stats logging
+// is turned off; NInfer has no metrics endpoint at all, so its line carries
+// the static facts we do know (context length, concurrency limit) instead of
+// telling the user to restart with a flag that does not exist.
+func metricsOffHint(srv *model.LLMServer) string {
+	switch srv.Kind {
+	case "vllm":
+		return "metrics disabled — start vllm without --disable-log-stats"
+	case "ninfer":
+		var parts []string
+		if srv.CtxSize > 0 {
+			parts = append(parts, fmt.Sprintf("ctx %d", srv.CtxSize))
+		}
+		if srv.SlotsTotal > 0 {
+			parts = append(parts, fmt.Sprintf("slots %d", srv.SlotsTotal))
+		}
+		parts = append(parts, "no throughput — ninfer serves no /metrics endpoint")
+		return strings.Join(parts, " · ")
+	default:
+		return "metrics disabled — start llama-server with --metrics"
 	}
 }
 

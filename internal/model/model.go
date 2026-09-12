@@ -61,9 +61,14 @@ const (
 )
 
 type LLMServer struct {
-	Kind       string `json:"kind"`     // adapter name, "llama.cpp"
-	Endpoint   string `json:"endpoint"` // http://host:port
-	PID        int32  `json:"pid,omitempty"`
+	Kind     string `json:"kind"`     // adapter name: "llama.cpp" | "vllm" | "ninfer"
+	Endpoint string `json:"endpoint"` // http://host:port
+	PID      int32  `json:"pid,omitempty"`
+	// GPUs lists the indices of the GPUs held by the server's process tree —
+	// the process itself or any descendant (vLLM's API server holds no VRAM;
+	// its VLLM::EngineCore child does). Filled by the collector; empty when
+	// the tree holds no GPU, or from an agent that predates the field.
+	GPUs       []int  `json:"gpus,omitempty"`
 	Role       string `json:"role,omitempty"` // "router" for llama.cpp router mode
 	Status     string `json:"status"`         // StatusOK | StatusLoading | StatusUnreachable | StatusSleeping
 	Model      string `json:"model"`          // alias, else basename(model_path)

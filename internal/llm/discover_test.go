@@ -46,6 +46,41 @@ func TestDiscoverNoAdapters(t *testing.T) {
 	}
 }
 
+func TestDiscoverVLLM(t *testing.T) {
+	table := map[int32]procs.ProcInfo{
+		100: {PID: 100, Comm: "python3", Cmdline: []string{"/opt/venv/bin/python", "/opt/venv/bin/vllm", "serve", "Qwen/Qwen2-7B", "--host", "0.0.0.0", "--port", "8082"}},
+		101: {PID: 101, PPID: 100, Comm: "VLLM::EngineCore", Cmdline: []string{"VLLM::EngineCore"}},
+		200: {PID: 200, Comm: "llama-server", Cmdline: []string{"llama-server", "--port", "8090"}},
+	}
+	got := Discover(table, Adapters(), nil)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2 (vllm serve + llama-server, not EngineCore): %+v", len(got), got)
+	}
+	if got[0].Endpoint != "http://127.0.0.1:8082" || got[0].PID != 100 || got[0].Adapter.Kind() != vllmKind {
+		t.Errorf("vllm = {%s pid=%d kind=%s}", got[0].Endpoint, got[0].PID, got[0].Adapter.Kind())
+	}
+	if got[1].Endpoint != "http://127.0.0.1:8090" || got[1].PID != 200 || got[1].Adapter.Kind() != llamaKind {
+		t.Errorf("llama = {%s pid=%d kind=%s}", got[1].Endpoint, got[1].PID, got[1].Adapter.Kind())
+	}
+}
+
+func TestDiscoverNInfer(t *testing.T) {
+	table := map[int32]procs.ProcInfo{
+		100: {PID: 100, Comm: "ninfer-serve", Cmdline: []string{"/opt/ninfer/build/apps/ninfer-serve", "/data/m.ninfer", "--model-id", "m", "--host", "0.0.0.0", "--port", "8002"}},
+		200: {PID: 200, Comm: "llama-server", Cmdline: []string{"llama-server", "--port", "8090"}},
+	}
+	got := Discover(table, Adapters(), nil)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2: %+v", len(got), got)
+	}
+	if got[0].Endpoint != "http://127.0.0.1:8002" || got[0].PID != 100 || got[0].Adapter.Kind() != ninferKind {
+		t.Errorf("ninfer = {%s pid=%d kind=%s}", got[0].Endpoint, got[0].PID, got[0].Adapter.Kind())
+	}
+	if got[1].Adapter.Kind() != llamaKind {
+		t.Errorf("llama kind = %s", got[1].Adapter.Kind())
+	}
+}
+
 func TestDiscoverScanCollisionDeterministic(t *testing.T) {
 	cmdline := []string{"/opt/llama.cpp/llama-server", "--host", "127.0.0.1", "--port", "8080"}
 	table := map[int32]procs.ProcInfo{
