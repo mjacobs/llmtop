@@ -24,13 +24,13 @@ type Collector struct {
 	vendor       gpu.Vendor
 	scanner      procs.Scanner
 	adapters     []llm.Adapter
-	static       []string
+	static       []llm.StaticEndpoint
 	agentVersion string
 	driver       string
 	hostname     string
 }
 
-func New(name string, vendor gpu.Vendor, scanner procs.Scanner, adapters []llm.Adapter, staticEndpoints []string, agentVersion string) *Collector {
+func New(name string, vendor gpu.Vendor, scanner procs.Scanner, adapters []llm.Adapter, staticEndpoints []llm.StaticEndpoint, agentVersion string) *Collector {
 	return &Collector{name: name, vendor: vendor, scanner: scanner,
 		adapters: adapters, static: staticEndpoints, agentVersion: agentVersion}
 }

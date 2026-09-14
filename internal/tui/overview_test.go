@@ -61,6 +61,42 @@ func TestServerLineStatusHints(t *testing.T) {
 	}
 }
 
+// The compact row's no-metrics hint follows the engine: only llama.cpp has
+// a --metrics flag, and NInfer serves no /metrics at all, so it shows what
+// we do know instead.
+func TestServerLineMetricsHintIsEngineAware(t *testing.T) {
+	th := DefaultTheme()
+	for _, tc := range []struct {
+		name    string
+		srv     model.LLMServer
+		want    string
+		notWant string
+	}{
+		{name: "llama.cpp", srv: model.LLMServer{Kind: "llama.cpp"}, want: "(--metrics off)"},
+		{name: "vllm", srv: model.LLMServer{Kind: "vllm"}, want: "(stats off)", notWant: "--metrics"},
+		{
+			name:    "ninfer with facts",
+			srv:     model.LLMServer{Kind: "ninfer", CtxSize: 8192, SlotsTotal: 4},
+			want:    "ctx 8192 4 slots",
+			notWant: "--metrics",
+		},
+		{name: "ninfer bare", srv: model.LLMServer{Kind: "ninfer"}, want: "(no /metrics)", notWant: "--metrics off"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := tc.srv
+			srv.Endpoint = "http://h:8080"
+			srv.Status = model.StatusOK
+			got := serverLine(&srv, th, 100)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("serverLine = %q, want it to contain %q", got, tc.want)
+			}
+			if tc.notWant != "" && strings.Contains(got, tc.notWant) {
+				t.Errorf("serverLine = %q, must not contain %q", got, tc.notWant)
+			}
+		})
+	}
+}
+
 func TestRenderOverviewWidth(t *testing.T) {
 	hosts := SampleHostStates()
 	out := RenderOverview(hosts, 0, 80, 60, DefaultTheme())

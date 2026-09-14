@@ -13,9 +13,9 @@ func TestDiscover(t *testing.T) {
 		7176:    {PID: 7176, Comm: "chrome", Cmdline: []string{"/opt/google/chrome/chrome", "--type=gpu-process"}},
 	}
 	adapters := []Adapter{NewLlamaCpp()}
-	static := []string{
-		"http://127.0.0.1:8080/", // dup of scanned (trailing slash) → keeps PID
-		"http://127.0.0.1:8081",  // container server, static-only
+	static := []StaticEndpoint{
+		{URL: "http://127.0.0.1:8080/"}, // dup of scanned (trailing slash) → keeps PID
+		{URL: "http://127.0.0.1:8081"},  // container server, static-only
 	}
 	got := Discover(table, adapters, static)
 	if len(got) != 3 {
@@ -41,8 +41,36 @@ func TestDiscoverEmpty(t *testing.T) {
 }
 
 func TestDiscoverNoAdapters(t *testing.T) {
-	if got := Discover(nil, nil, []string{"http://127.0.0.1:1"}); len(got) != 0 {
+	if got := Discover(nil, nil, []StaticEndpoint{{URL: "http://127.0.0.1:1"}}); len(got) != 0 {
 		t.Fatalf("want empty, got %+v", got)
+	}
+}
+
+// A static endpoint is queried by the adapter for its declared kind; an
+// unset kind stays llama.cpp, and an unknown one is dropped rather than
+// polled with the wrong API.
+func TestDiscoverStaticKindSelectsAdapter(t *testing.T) {
+	static := []StaticEndpoint{
+		{URL: "http://127.0.0.1:8000", Kind: KindVLLM},
+		{URL: "http://127.0.0.1:8001", Kind: KindNInfer},
+		{URL: "http://127.0.0.1:8002", Kind: KindLlamaCpp},
+		{URL: "http://127.0.0.1:8003"},
+		{URL: "http://127.0.0.1:8004", Kind: "nope"},
+	}
+	got := Discover(nil, Adapters(), static)
+	want := map[string]string{
+		"http://127.0.0.1:8000": vllmKind,
+		"http://127.0.0.1:8001": ninferKind,
+		"http://127.0.0.1:8002": llamaKind,
+		"http://127.0.0.1:8003": llamaKind,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d (unknown kind must be dropped): %+v", len(got), len(want), got)
+	}
+	for _, d := range got {
+		if k := d.Adapter.Kind(); k != want[d.Endpoint] {
+			t.Errorf("%s adapter = %s, want %s", d.Endpoint, k, want[d.Endpoint])
+		}
 	}
 }
 

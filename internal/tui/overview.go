@@ -336,9 +336,37 @@ func serverLine(srv *model.LLMServer, th Theme, width int) string {
 		}
 		line += th.LLM.Render(stats)
 	default:
-		line += th.Dim.Render(" (--metrics off)")
+		line += th.Dim.Render(" " + compactMetricsHint(srv))
 	}
 	return truncateLine(line, width)
+}
+
+// compactMetricsHint is the compact tier's short form of panel.go's
+// metricsOffHint, for a reachable, resident server with no metrics. It is
+// worded per engine: only llama.cpp has a --metrics flag to turn on, vLLM
+// serves metrics unless stats logging is disabled, and NInfer has no
+// metrics endpoint at all — so its row carries the static facts we do know
+// (context length, concurrency limit) instead of naming a flag that does
+// not exist.
+func compactMetricsHint(srv *model.LLMServer) string {
+	switch srv.Kind {
+	case "vllm":
+		return "(stats off)"
+	case "ninfer":
+		var parts []string
+		if srv.CtxSize > 0 {
+			parts = append(parts, fmt.Sprintf("ctx %d", srv.CtxSize))
+		}
+		if srv.SlotsTotal > 0 {
+			parts = append(parts, fmt.Sprintf("%d slots", srv.SlotsTotal))
+		}
+		if len(parts) == 0 {
+			return "(no /metrics)"
+		}
+		return strings.Join(parts, " ")
+	default:
+		return "(--metrics off)"
+	}
 }
 
 // ringSlice reads a GPU-indexed ring's samples, tolerating an absent entry

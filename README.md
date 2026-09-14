@@ -184,7 +184,8 @@ gpus  = [1, 0]           # optional: show only these GPU indices, in this order
                          # (omit for all GPUs in device order)
 
   [[hosts.llm_endpoints]] # optional static additions for this (local) host
-  url = "http://127.0.0.1:8081"
+  url  = "http://127.0.0.1:8081"
+  kind = "llama.cpp"      # engine: "llama.cpp" (default), "vllm", "ninfer"
 
 [[hosts]]
 name  = "gpu-box"
@@ -201,7 +202,9 @@ Each host entry is either `local = true` (an in-process collector) or has an
 the two. `llm_endpoints` lets you add LLM server URLs that process-scan
 discovery can't see (e.g. containerized servers whose cmdline isn't visible
 from `/proc`) — they only apply to `local` hosts, since they're read by
-whichever process runs the collector for that host. For a remote host,
+whichever process runs the collector for that host. `kind` names the engine
+serving that URL so the right API is polled; it defaults to `llama.cpp`, so a
+vLLM or NInfer endpoint must say so. For a remote host,
 declare its `llm_endpoints` in the agent's own config on that machine instead.
 
 `gpus` and the `[ui]` toggles shape only what the TUI reading this config

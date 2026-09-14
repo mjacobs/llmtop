@@ -184,11 +184,11 @@ func runAgent(args []string) error {
 	} else if t := os.Getenv("LLMTOP_TOKEN"); t != "" {
 		cfg.Agent.Token = t
 	}
-	var static []string
+	var static []llm.StaticEndpoint
 	for _, h := range cfg.Hosts {
 		if h.Local {
 			for _, e := range h.LLMEndpoints {
-				static = append(static, e.URL)
+				static = append(static, llm.StaticEndpoint{URL: e.URL, Kind: e.Kind})
 			}
 		}
 	}

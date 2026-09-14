@@ -120,11 +120,12 @@ func startLocalHost(ctx context.Context, h config.HostConfig, updates chan<- cli
 	client.StartLocal(ctx, h.Name, col, interval, updates)
 }
 
-// endpoints extracts static LLM endpoint URLs from a host's config.
-func endpoints(h config.HostConfig) []string {
-	out := make([]string, len(h.LLMEndpoints))
+// endpoints extracts a host's statically declared LLM servers, each with
+// the engine kind that decides which adapter queries it.
+func endpoints(h config.HostConfig) []llm.StaticEndpoint {
+	out := make([]llm.StaticEndpoint, len(h.LLMEndpoints))
 	for i, e := range h.LLMEndpoints {
-		out[i] = e.URL
+		out[i] = llm.StaticEndpoint{URL: e.URL, Kind: e.Kind}
 	}
 	return out
 }

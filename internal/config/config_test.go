@@ -182,10 +182,34 @@ func TestValidationErrors(t *testing.T) {
 		"llm_endpoints on remote": "[[hosts]]\nname=\"x\"\naddr=\"h:1\"\n[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8081\"\n",
 		"duplicate gpu index":     "[[hosts]]\nname=\"x\"\nlocal=true\ngpus=[0,1,0]\n",
 		"negative gpu index":      "[[hosts]]\nname=\"x\"\nlocal=true\ngpus=[-1]\n",
+		"unknown endpoint kind":   "[[hosts]]\nname=\"x\"\nlocal=true\n[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8081\"\nkind=\"vLLM\"\n",
 	}
 	for name, body := range cases {
 		if _, err := Load(write(t, body)); err == nil {
 			t.Errorf("%s: want error, got nil", name)
+		}
+	}
+}
+
+// kind names the engine behind a static endpoint so the right adapter
+// queries it; the known kinds load and an absent kind stays llama.cpp.
+func TestLLMEndpointKind(t *testing.T) {
+	body := "[[hosts]]\nname=\"x\"\nlocal=true\n" +
+		"[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8000\"\nkind=\"vllm\"\n" +
+		"[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8001\"\nkind=\"ninfer\"\n" +
+		"[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8002\"\n"
+	cfg, err := Load(write(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"vllm", "ninfer", ""}
+	eps := cfg.Hosts[0].LLMEndpoints
+	if len(eps) != len(want) {
+		t.Fatalf("llm_endpoints = %+v", eps)
+	}
+	for i, k := range want {
+		if eps[i].Kind != k {
+			t.Errorf("[%d] kind = %q, want %q", i, eps[i].Kind, k)
 		}
 	}
 }

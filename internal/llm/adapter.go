@@ -16,6 +16,25 @@ type Adapter interface {
 }
 
 // Adapters is the collector's built-in set, tried in order on each process.
+// Engine kinds, as reported by Adapter.Kind and named in a static
+// endpoint's kind key.
+const (
+	KindLlamaCpp = llamaKind
+	KindVLLM     = vllmKind
+	KindNInfer   = ninferKind
+)
+
+// Kinds lists the engine kinds Adapters covers, in adapter order. Config
+// validation uses it so a new adapter needs no second list.
+func Kinds() []string {
+	as := Adapters()
+	out := make([]string, len(as))
+	for i, a := range as {
+		out[i] = a.Kind()
+	}
+	return out
+}
+
 func Adapters() []Adapter {
 	return []Adapter{NewLlamaCpp(), NewVLLM(), NewNInfer()}
 }

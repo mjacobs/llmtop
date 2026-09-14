@@ -42,7 +42,7 @@ func TestCollect(t *testing.T) {
 		300: {PID: 300, PPID: 1, Comm: "onnx-runner"},
 	}}
 
-	c := New("testhost", vendor, scanner, []llm.Adapter{llm.NewLlamaCpp()}, []string{srv.URL}, "0.1.0")
+	c := New("testhost", vendor, scanner, []llm.Adapter{llm.NewLlamaCpp()}, []llm.StaticEndpoint{{URL: srv.URL}}, "0.1.0")
 	if err := c.Init(); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestCollectVendorFailureStillDiscoversServers(t *testing.T) {
 		100: {PID: 100, PPID: 1, Comm: "fake-server", Cmdline: []string{"fake-server", "1001"}},
 	}}
 	ad := echoAdapter{srv: model.LLMServer{Kind: "fake", Status: model.StatusOK, Model: "m"}}
-	c := New("h", failingVendor{}, scanner, []llm.Adapter{ad}, []string{"http://127.0.0.1:1002"}, "0.1.0")
+	c := New("h", failingVendor{}, scanner, []llm.Adapter{ad}, []llm.StaticEndpoint{{URL: "http://127.0.0.1:1002"}}, "0.1.0")
 	if err := c.Init(); err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestCollectAttributesServerGPUsThroughChildren(t *testing.T) {
 		300: {PID: 300, PPID: 1, Comm: "onnx-runner"},
 	}}
 	ad := echoAdapter{srv: model.LLMServer{Kind: "fake", Status: model.StatusOK}}
-	c := New("h", vendor, scanner, []llm.Adapter{ad}, []string{"http://127.0.0.1:1003"}, "0.1.0")
+	c := New("h", vendor, scanner, []llm.Adapter{ad}, []llm.StaticEndpoint{{URL: "http://127.0.0.1:1003"}}, "0.1.0")
 	if err := c.Init(); err != nil {
 		t.Fatal(err)
 	}

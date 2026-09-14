@@ -10,12 +10,19 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/mjacobs/llmtop/internal/llm"
 )
 
 type LLMEndpoint struct {
 	URL string `toml:"url"`
+	// Kind names the engine serving this URL ("llama.cpp", "vllm",
+	// "ninfer"); it picks the adapter that queries it. Empty means
+	// llama.cpp.
+	Kind string `toml:"kind"`
 }
 
 type HostConfig struct {
@@ -133,6 +140,20 @@ func load(path string, mustExist bool) (Config, error) {
 	return cfg, nil
 }
 
+// validKind reports whether an llm_endpoints kind names a known engine.
+// Empty is the llama.cpp default.
+func validKind(kind string) bool {
+	if kind == "" {
+		return true
+	}
+	for _, k := range llm.Kinds() {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func validate(cfg Config) error {
 	seen := map[string]bool{}
 	for i, h := range cfg.Hosts {
@@ -148,6 +169,12 @@ func validate(cfg Config) error {
 		}
 		if !h.Local && len(h.LLMEndpoints) > 0 {
 			return fmt.Errorf("host %q: llm_endpoints only apply to local hosts — declare them in that host's agent config", h.Name)
+		}
+		for _, e := range h.LLMEndpoints {
+			if !validKind(e.Kind) {
+				return fmt.Errorf("host %q: llm_endpoints url %q has unknown kind %q — use one of %s",
+					h.Name, e.URL, e.Kind, strings.Join(llm.Kinds(), ", "))
+			}
 		}
 		seenGPU := map[int]bool{}
 		for _, idx := range h.GPUs {
