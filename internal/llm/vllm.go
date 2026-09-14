@@ -99,7 +99,10 @@ func (a *VLLM) Fetch(ctx context.Context, endpoint string, _ FetchHint) model.LL
 	a.mu.Lock()
 	meta := a.meta[normalizeEndpoint(endpoint)]
 	a.mu.Unlock()
-	if meta.model != "" {
+	// meta.model is a cmdline guess; anything the server tells us about
+	// itself outranks it (see vllmModelFromCmdline).
+	fromCmdline := meta.model != ""
+	if fromCmdline {
 		s.Model = meta.model
 	}
 	s.CtxSize = meta.ctx
@@ -128,6 +131,7 @@ func (a *VLLM) Fetch(ctx context.Context, endpoint string, _ FetchHint) model.LL
 		if json.Unmarshal(body, &mods) == nil && len(mods.Data) > 0 {
 			if mods.Data[0].ID != "" {
 				s.Model = mods.Data[0].ID
+				fromCmdline = false
 			}
 			if mods.Data[0].MaxModelLen > 0 {
 				s.CtxSize = mods.Data[0].MaxModelLen
@@ -140,7 +144,7 @@ func (a *VLLM) Fetch(ctx context.Context, endpoint string, _ FetchHint) model.LL
 		return s
 	}
 	samples := ParsePromSamples(mbody)
-	if s.Model == "" {
+	if s.Model == "" || fromCmdline {
 		for _, smp := range samples {
 			if name := smp.Labels["model_name"]; name != "" {
 				s.Model = name
@@ -149,6 +153,11 @@ func (a *VLLM) Fetch(ctx context.Context, endpoint string, _ FetchHint) model.LL
 		}
 	}
 	if vllmSleeping(samples) {
+		// A sleeping engine stops advancing its token counters, so the
+		// anchors held here would otherwise spread the next awake delta
+		// across the whole sleep interval. Drop them; the first awake
+		// scrape re-anchors.
+		a.rates.Reset(endpoint)
 		s.Status = model.StatusSleeping
 		return s
 	}

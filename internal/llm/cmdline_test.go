@@ -103,3 +103,27 @@ func TestNInferEndpointFromCmdline(t *testing.T) {
 		}
 	}
 }
+
+func TestVLLMModelFromCmdline(t *testing.T) {
+	// argv belongs to another process and can carry secrets; only the
+	// positions vLLM itself reads as the model may be reported.
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"positional tag", []string{"vllm", "serve", "org/Qwen2-7B", "--port", "8000"}, "Qwen2-7B"},
+		{"served-model-name wins", []string{"vllm", "serve", "org/Qwen2-7B", "--served-model-name", "qwen-demo"}, "qwen-demo"},
+		{"module entrypoint --model", []string{"python", "-m", "vllm.entrypoints.openai.api_server", "--model", "org/Qwen2-7B"}, "Qwen2-7B"},
+		{"api key value is not a model", []string{"vllm", "serve", "--api-key", "sk-secret", "--port", "8000"}, ""},
+		{"api key before the tag is not a model", []string{"vllm", "serve", "--api-key", "sk-secret", "org/Qwen2-7B"}, ""},
+		{"host value is not a model", []string{"vllm", "serve", "--host", "0.0.0.0", "--port", "8000"}, ""},
+		{"serve with no arguments", []string{"vllm", "serve"}, ""},
+		{"not a vllm command line", []string{"llama-server", "--port", "8080"}, ""},
+	}
+	for _, c := range cases {
+		if got := vllmModelFromCmdline(c.argv); got != c.want {
+			t.Errorf("%s: vllmModelFromCmdline(%v) = %q, want %q", c.name, c.argv, got, c.want)
+		}
+	}
+}

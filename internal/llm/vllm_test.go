@@ -2,7 +2,9 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -237,5 +239,94 @@ func TestVLLMFetchDoesNotFollowRedirects(t *testing.T) {
 	}
 	if n := atomic.LoadInt32(&targetHits); n != 0 {
 		t.Fatalf("redirect target was contacted %d time(s); redirects must not be followed", n)
+	}
+}
+
+// A keyed vLLM answers 401 on /v1/models, so the cmdline fallback is the
+// only identity we would otherwise have — and an option value mistaken for
+// the model would then be published as telemetry. Nothing from argv but the
+// model itself may reach the snapshot.
+func TestVLLMAPIKeyNeverReachesTelemetry(t *testing.T) {
+	const key = "sk-do-not-leak"
+	body := vllmMetrics(10, 20, 0, 0, 0.5, "awake")
+	f := newFakeVLLM(t, http.StatusUnauthorized, "", body)
+	host, port, err := net.SplitHostPort(strings.TrimPrefix(f.srv.URL, "http://"))
+	if err != nil {
+		t.Fatalf("split %q: %v", f.srv.URL, err)
+	}
+
+	a := NewVLLM()
+	ep, ok := a.Detect([]string{"vllm", "serve", "--api-key", key, "--host", host, "--port", port})
+	if !ok {
+		t.Fatalf("Detect(%q:%q) failed", host, port)
+	}
+	s := a.Fetch(context.Background(), ep, FetchHint{})
+	if s.Model == key {
+		t.Fatalf("API key published as model: %+v", s)
+	}
+	if s.Model != "qwen-demo" {
+		t.Fatalf("model = %q, want the metrics model_name label", s.Model)
+	}
+	wire, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(wire), key) {
+		t.Fatalf("serialized snapshot contains the API key: %s", wire)
+	}
+}
+
+// A metrics model_name label outranks the cmdline guess, so a wrong or
+// stale cmdline fallback cannot pin itself to the display.
+func TestVLLMMetricLabelOverridesCmdlineModel(t *testing.T) {
+	body := vllmMetrics(10, 20, 0, 0, 0.5, "awake")
+	f := newFakeVLLM(t, http.StatusUnauthorized, "", body)
+	a := NewVLLM()
+	a.meta[normalizeEndpoint(f.srv.URL)] = vllmMeta{model: "stale-guess"}
+	s := a.Fetch(context.Background(), f.srv.URL, FetchHint{})
+	if s.Model != "qwen-demo" {
+		t.Fatalf("model = %q, want the metrics label to win over the cmdline guess", s.Model)
+	}
+}
+
+// Sleep stops the token counters. The anchors taken before sleep must be
+// dropped, or the first awake sample divides its delta by the whole sleep
+// interval and reports a near-zero rate.
+func TestVLLMSleepResetsRateAnchors(t *testing.T) {
+	awake := vllmMetrics(100, 500, 1, 0, 0.5, "awake")
+	f := newFakeVLLM(t, http.StatusOK, vllmModelsJSON, awake)
+	a := NewVLLM()
+	base := time.Unix(9000, 0)
+	now := base
+	a.Now = func() time.Time { return now }
+
+	a.Fetch(context.Background(), f.srv.URL, FetchHint{}) // anchor
+
+	asleep := vllmMetrics(100, 500, 0, 0, 0, "discard_all")
+	f.metrics.Store(&asleep)
+	now = base.Add(100 * time.Second)
+	if s := a.Fetch(context.Background(), f.srv.URL, FetchHint{}); s.Status != model.StatusSleeping {
+		t.Fatalf("status = %q, want sleeping", s.Status)
+	}
+
+	woken := vllmMetrics(120, 540, 1, 0, 0.5, "awake")
+	f.metrics.Store(&woken)
+	now = base.Add(102 * time.Second)
+	s := a.Fetch(context.Background(), f.srv.URL, FetchHint{})
+	if s.Metrics == nil {
+		t.Fatal("Metrics must be present after wake")
+	}
+	if s.Metrics.PromptTPS != 0 || s.Metrics.PredictedTPS != 0 {
+		t.Fatalf("first awake sample = %v/%v t/s, want a fresh anchor (0/0) rather than a rate spanning the sleep",
+			s.Metrics.PromptTPS, s.Metrics.PredictedTPS)
+	}
+
+	later := vllmMetrics(140, 580, 1, 0, 0.5, "awake")
+	f.metrics.Store(&later)
+	now = base.Add(104 * time.Second)
+	s = a.Fetch(context.Background(), f.srv.URL, FetchHint{})
+	if s.Metrics.PromptTPS != 10 || s.Metrics.PredictedTPS != 20 {
+		t.Fatalf("post-wake TPS = %v/%v, want 10/20 measured from the new anchor",
+			s.Metrics.PromptTPS, s.Metrics.PredictedTPS)
 	}
 }

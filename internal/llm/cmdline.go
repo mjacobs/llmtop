@@ -134,22 +134,35 @@ func argvStringFlag(argv []string, name string) string {
 	return ""
 }
 
-// vllmModelFromCmdline prefers --served-model-name, else the first positional
-// after `serve` that is not a flag.
+// vllmModelFromCmdline extracts the served model from a `vllm serve` (or
+// `python -m vllm.entrypoints.openai.api_server`) command line, in the order
+// vLLM itself resolves it: --served-model-name, then --model, then the single
+// positional model tag that `vllm serve` accepts immediately after the
+// subcommand.
+//
+// Only that one position is read. argv holds another process's arguments,
+// including secrets like --api-key, and scanning further for "the first thing
+// that does not start with a dash" would happily return an option's value:
+// `vllm serve --api-key sk-… ` would publish the key as the model name and
+// leak it through the snapshot and history APIs. An unrecognised shape yields
+// "" and lets /v1/models or the metrics model_name label name the model.
 func vllmModelFromCmdline(argv []string) string {
 	if s := argvStringFlag(argv, "--served-model-name"); s != "" {
 		return s
+	}
+	if s := argvStringFlag(argv, "--model"); s != "" {
+		return filepath.Base(s)
 	}
 	for i, a := range argv {
 		if a != "serve" {
 			continue
 		}
-		for _, arg := range argv[i+1:] {
-			if strings.HasPrefix(arg, "-") {
-				continue
-			}
-			return filepath.Base(arg)
+		// `vllm serve <model_tag>`: the tag is positional and first.
+		// Anything else (an option, or no argument) means no model here.
+		if i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "-") {
+			return filepath.Base(argv[i+1])
 		}
+		return ""
 	}
 	return ""
 }
