@@ -4,12 +4,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    ignore:
-      # x/ansi 0.11+ changed the Style API that lipgloss v1's pinned cellbuf
-      # still uses, so a lone bump cannot build. Move the whole charm stack
-      # (bubbletea, lipgloss, x/ansi) together instead.
-      - dependency-name: github.com/charmbracelet/x/ansi
-        update-types: ["version-update:semver-minor", "version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

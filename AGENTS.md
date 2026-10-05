@@ -20,6 +20,13 @@ covers the invariants that are easy to break.
   A slot list only permutes `hostRender.order` — index GPUs through
   `hr.gpuAt(pos)`, never `hr.h.Snap.GPUs[pos]`, or panels and their line
   counts drift apart.
+- **Charm v2 sizes whole blocks.** `lipgloss.Style.Width`/`Height` count the
+  border and padding, unlike v1 where they covered content plus padding only.
+  Bordered boxes in `panel.go`/`overview.go` therefore pass the full width and
+  `contentH + 2`; the solver in `layout.go` still counts content lines, so keep
+  the `+2` at the render call, not in the counters. The alt screen is a
+  property of `App.View` rather than a `tea.NewProgram` option, and only
+  `tea.KeyPressMsg` is bound — binding `tea.KeyMsg` would also catch releases.
 - **Never poll a sleeping llama.cpp server's `/metrics` per tick.** llama.cpp
   counts `/metrics` and `/slots` as activity and they reset the
   `--sleep-idle-seconds` timer (and wake a sleeping server); only `/health` and

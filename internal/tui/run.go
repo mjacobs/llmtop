@@ -26,7 +26,7 @@ import (
 	"context"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mjacobs/llmtop/internal/client"
 	"github.com/mjacobs/llmtop/internal/collector"
@@ -63,7 +63,9 @@ func Run(cfg config.Config, connects []string, demo bool, version string) error 
 	}
 
 	app := NewApp(view, updates, refresh, onRefreshChange, version)
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	// The alt screen is requested per-view in Bubble Tea v2 (see App.View),
+	// not as a program option.
+	p := tea.NewProgram(app)
 	_, err := p.Run()
 	cancel()
 	return err

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mjacobs/llmtop/internal/client"
 )
@@ -74,13 +74,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width, a.height = msg.Width, msg.Height
 		return a, nil
 
-	case tea.KeyMsg:
+	// Only key presses drive the UI. Bubble Tea v2 also models key
+	// releases, but they are off unless a program opts into them, and
+	// binding both would fire every action twice.
+	case tea.KeyPressMsg:
 		return a.handleKey(msg)
 	}
 	return a, nil
 }
 
-func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return a, tea.Quit
@@ -192,7 +195,17 @@ var fullHelp = []string{
 	"?            toggle this help",
 }
 
-func (a *App) View() string {
+// View wraps the rendered frame for Bubble Tea. The alt screen is a
+// property of the view in v2 rather than a program option.
+func (a *App) View() tea.View {
+	v := tea.NewView(a.render())
+	v.AltScreen = true
+	return v
+}
+
+// render draws one frame: header, body, and footer, clamped to the
+// terminal height.
+func (a *App) render() string {
 	header := fmt.Sprintf("llmtop · refresh %s", fmtRefresh(a.refresh))
 	// The layout is named only when it is not the default heuristic, so the
 	// header stays quiet for the majority of runs.

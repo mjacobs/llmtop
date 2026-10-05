@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mjacobs/llmtop/internal/model"
 )
@@ -411,7 +411,10 @@ func renderGPUPanel(hr hostRender, pos, width, contentH, chartH int, showProcs, 
 	if active {
 		border = th.BorderActive
 	}
-	return border.Width(width-2).Height(contentH).Padding(0, 1).
+	// lipgloss v2 sizes the whole block, borders and padding included, so
+	// the panel asks for the full width and contentH plus the two border
+	// rows.
+	return border.Width(width).Height(contentH+2).Padding(0, 1).
 		Render(strings.Join(lines, "\n"))
 }
 
@@ -444,12 +447,13 @@ func renderHostStrip(hr hostRender, width, contentH int, th Theme) string {
 		}
 		lines = append(lines, truncateLine(th.Err.Render(prefix+h.ErrMsg), inner))
 	}
-	border := th.Border.Width(width-2).Padding(0, 1)
+	// Width/Height cover the border rows and columns too (lipgloss v2).
+	border := th.Border.Width(width).Padding(0, 1)
 	if contentH > 0 {
 		if len(lines) > contentH {
 			lines = lines[:contentH]
 		}
-		border = border.Height(contentH)
+		border = border.Height(contentH + 2)
 	}
 	return border.Render(strings.Join(lines, "\n"))
 }

@@ -4,9 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/muesli/termenv"
 
 	"github.com/mjacobs/llmtop/internal/model"
 )
@@ -140,10 +139,9 @@ func TestPanelProcLinesFiltersAndDropsGPUColumn(t *testing.T) {
 }
 
 func TestSectionRuleGeometry(t *testing.T) {
-	previousProfile := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	defer lipgloss.SetColorProfile(previousProfile)
-
+	// lipgloss v2 always emits full-colour escapes (the profile downgrade
+	// happens at write time), so the ANSI assertion below holds without
+	// forcing a colour profile.
 	th := DefaultTheme()
 
 	wide := sectionRule("LLM SERVERS", 32, th)

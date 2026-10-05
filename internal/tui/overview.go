@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mjacobs/llmtop/internal/history"
@@ -217,7 +217,7 @@ func renderCompact(hrs []hostRender, selectedHost, width int, th Theme) string {
 			}
 			lines = append(lines, truncateLine(th.Err.Render(prefix+h.ErrMsg), inner))
 		}
-		panels = append(panels, border.Width(width-2).Padding(0, 1).Render(strings.Join(lines, "\n")))
+		panels = append(panels, border.Width(width).Padding(0, 1).Render(strings.Join(lines, "\n")))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, panels...)
 }

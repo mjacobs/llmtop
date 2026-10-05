@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mjacobs/llmtop/internal/client"
 	"github.com/mjacobs/llmtop/internal/model"
@@ -22,8 +22,9 @@ func testApp() (*App, chan client.Update) {
 	return a, ch
 }
 
-func key(s string) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+// key builds the key-press message a single printable character produces.
+func key(s string) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
 }
 
 func TestNavigationAcrossGPUPanels(t *testing.T) {
@@ -65,11 +66,11 @@ func TestNavigationAcrossGPUPanels(t *testing.T) {
 	}
 
 	// enter/esc/tab are unbound: they must not disturb state.
-	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = m.(*App)
-	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	a = m.(*App)
-	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	a = m.(*App)
 	if a.selected != 0 {
 		t.Fatalf("removed keys must be no-ops, selected = %d", a.selected)
@@ -160,7 +161,7 @@ func TestViewRenders(t *testing.T) {
 		GPUs: []model.GPU{{Index: 0, UtilPct: 50, MemUsed: 1, MemTotal: 2}}}}
 	m, _ = a.Update(a.readUpdate()())
 	a = m.(*App)
-	out := a.View()
+	out := a.render()
 	if out == "" || !strings.Contains(out, "llmtop") || !strings.Contains(out, "h1") {
 		t.Fatalf("view:\n%s", out)
 	}
@@ -188,12 +189,12 @@ func TestHelpShowsBuildDetail(t *testing.T) {
 		t.Fatalf("buildLine = %q, want the Go toolchain version", a.buildLine)
 	}
 
-	if out := a.View(); strings.Contains(out, "go1.") {
+	if out := a.render(); strings.Contains(out, "go1.") {
 		t.Fatal("collapsed footer must not show build detail")
 	}
 	a.showHelp = true
-	if out := a.View(); !strings.Contains(out, a.buildLine) {
-		t.Fatalf("expanded help must contain %q:\n%s", a.buildLine, a.View())
+	if out := a.render(); !strings.Contains(out, a.buildLine) {
+		t.Fatalf("expanded help must contain %q:\n%s", a.buildLine, a.render())
 	}
 }
 
@@ -223,7 +224,7 @@ func TestViewFitsTinyTerminal(t *testing.T) {
 			m, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: tc.height})
 			a = m.(*App)
 			a.showHelp = tc.help
-			out := a.View()
+			out := a.render()
 			if got := len(strings.Split(out, "\n")); got > tc.height {
 				t.Fatalf("View rendered %d lines > height %d:\n%s", got, tc.height, out)
 			}
@@ -240,7 +241,7 @@ func TestLayoutKeyCycles(t *testing.T) {
 	a, _ := testApp()
 	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	a = m.(*App)
-	if header := strings.SplitN(a.View(), "\n", 2)[0]; strings.Contains(header, "layout") {
+	if header := strings.SplitN(a.render(), "\n", 2)[0]; strings.Contains(header, "layout") {
 		t.Fatalf("auto layout must stay out of the header: %q", header)
 	}
 
@@ -254,7 +255,7 @@ func TestLayoutKeyCycles(t *testing.T) {
 
 	m, _ = a.Update(key("l")) // back to one-row
 	a = m.(*App)
-	if header := strings.SplitN(a.View(), "\n", 2)[0]; header != "llmtop · refresh 1.0s · layout one-row" {
+	if header := strings.SplitN(a.render(), "\n", 2)[0]; header != "llmtop · refresh 1.0s · layout one-row" {
 		t.Fatalf("header = %q, want the layout named", header)
 	}
 }
@@ -269,7 +270,7 @@ func TestConfiguredLayoutReachesTheApp(t *testing.T) {
 	}, ch, time.Second, func(time.Duration) {}, "test")
 	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	a = m.(*App)
-	if header := strings.SplitN(a.View(), "\n", 2)[0]; !strings.Contains(header, "layout columns 3") {
+	if header := strings.SplitN(a.render(), "\n", 2)[0]; !strings.Contains(header, "layout columns 3") {
 		t.Fatalf("header = %q, want the configured column target", header)
 	}
 	m, _ = a.Update(key("l"))

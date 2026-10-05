@@ -6,8 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mjacobs/llmtop/internal/client"
 	"github.com/mjacobs/llmtop/internal/history"
@@ -237,13 +236,9 @@ func TestRenderOverviewSelection(t *testing.T) {
 		t.Fatal("panel 2 must belong to host 1")
 	}
 	// Selected panel gets the lavender active border. The difference is
-	// color-only, and `go test` runs with stdout not a tty, so lipgloss's
-	// default renderer would silently strip it (Ascii profile) and make a
-	// and b identical regardless of selection — force TrueColor for this
-	// assertion so the comparison is meaningful.
-	prevProfile := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	defer lipgloss.SetColorProfile(prevProfile)
+	// color-only; lipgloss v2 always renders full-colour escapes and
+	// downgrades at write time, so the comparison holds even though
+	// `go test` runs with stdout not a tty.
 	a := RenderOverview(hosts, 0, 100, 63, LayoutPref{}, th)
 	b := RenderOverview(hosts, 2, 100, 63, LayoutPref{}, th)
 	if a == b {
