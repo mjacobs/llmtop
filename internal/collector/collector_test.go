@@ -350,3 +350,29 @@ func TestCollectAttributesServerGPUsThroughChildren(t *testing.T) {
 		t.Fatalf("GPU0 LLMMemBytes = %d, want the engine's 2G", s.GPUs[0].LLMMemBytes)
 	}
 }
+
+// TestCollectPassesAPIKeyHint pins the api_key plumbing end to end: a
+// StaticEndpoint's APIKey must reach the adapter's FetchHint for that
+// endpoint (and stay empty for one with no key configured).
+func TestCollectPassesAPIKeyHint(t *testing.T) {
+	vendor := gpu.NewFake(1)
+	scanner := &procs.Fake{}
+	ad := &hintAdapter{hints: map[string]llm.FetchHint{}}
+
+	c := New("h", vendor, scanner, []llm.Adapter{ad}, []llm.StaticEndpoint{
+		{URL: "http://127.0.0.1:1001", APIKey: "sk-secret"},
+		{URL: "http://127.0.0.1:1002"},
+	}, "test")
+	if err := c.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Collect(context.Background())
+
+	if got := ad.hints["http://127.0.0.1:1001"].APIKey; got != "sk-secret" {
+		t.Fatalf("APIKey hint = %q, want %q", got, "sk-secret")
+	}
+	if got := ad.hints["http://127.0.0.1:1002"].APIKey; got != "" {
+		t.Fatalf("APIKey hint = %q, want empty (no api_key configured)", got)
+	}
+}

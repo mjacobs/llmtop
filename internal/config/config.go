@@ -23,6 +23,10 @@ type LLMEndpoint struct {
 	// "ninfer"); it picks the adapter that queries it. Empty means
 	// llama.cpp.
 	Kind string `toml:"kind"`
+	// APIKey, when set, is sent as "Authorization: Bearer <APIKey>" on
+	// requests to this endpoint — for a llama-server started with its own
+	// --api-key flag.
+	APIKey string `toml:"api_key"`
 }
 
 type HostConfig struct {

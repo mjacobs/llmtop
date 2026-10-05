@@ -121,11 +121,12 @@ func startLocalHost(ctx context.Context, h config.HostConfig, updates chan<- cli
 }
 
 // endpoints extracts a host's statically declared LLM servers, each with
-// the engine kind that decides which adapter queries it.
+// the engine kind that decides which adapter queries it and its optional
+// api_key.
 func endpoints(h config.HostConfig) []llm.StaticEndpoint {
 	out := make([]llm.StaticEndpoint, len(h.LLMEndpoints))
 	for i, e := range h.LLMEndpoints {
-		out[i] = llm.StaticEndpoint{URL: e.URL, Kind: e.Kind}
+		out[i] = llm.StaticEndpoint{URL: e.URL, Kind: e.Kind, APIKey: e.APIKey}
 	}
 	return out
 }

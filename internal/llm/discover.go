@@ -11,20 +11,29 @@ type Discovered struct {
 	Endpoint string
 	PID      int32 // 0 when declared via static config only
 	Adapter  Adapter
+	// APIKey, when non-empty, is sent as "Authorization: Bearer <APIKey>"
+	// on requests to Endpoint (see StaticEndpoint).
+	APIKey string
 }
 
 // StaticEndpoint is an LLM server declared in config because the process
-// scan cannot see it (a container, say). Kind names the engine behind the
-// URL so the right adapter queries it — a vLLM server polled with the
-// llama.cpp adapter reports nothing useful. Empty Kind means llama.cpp,
-// which is what the key defaulted to before engines other than llama.cpp
-// were supported.
+// scan cannot see it (a container, say), or a scanned server's URL listed
+// again to carry its api_key. Kind names the engine behind the URL so the
+// right adapter queries it — a vLLM server polled with the llama.cpp adapter
+// reports nothing useful. Empty Kind means llama.cpp, which is what the key
+// defaulted to before engines other than llama.cpp were supported. APIKey is
+// the optional api_key for a server started with llama-server's own
+// --api-key.
 type StaticEndpoint struct {
-	URL  string
-	Kind string
+	URL    string
+	Kind   string
+	APIKey string
 }
 
-// Discover merges process-scan detections with static config endpoints.
+// Discover merges process-scan detections with static config endpoints. A
+// static entry whose URL matches a process-scan hit does not add a second
+// server — it only contributes its APIKey when the scanned entry has none,
+// since cmdline scanning has no way to see a --api-key flag's value.
 func Discover(table map[int32]procs.ProcInfo, adapters []Adapter, static []StaticEndpoint) []Discovered {
 	byEP := map[string]Discovered{}
 	for _, info := range table {
@@ -43,11 +52,15 @@ func Discover(table map[int32]procs.ProcInfo, adapters []Adapter, static []Stati
 	// A static endpoint is useless without an adapter to fetch it.
 	for _, se := range static {
 		ep := normalizeEndpoint(se.URL)
-		if _, dup := byEP[ep]; dup {
+		if prev, dup := byEP[ep]; dup {
+			if prev.APIKey == "" && se.APIKey != "" {
+				prev.APIKey = se.APIKey
+				byEP[ep] = prev
+			}
 			continue
 		}
 		if a := adapterForKind(adapters, se.Kind); a != nil {
-			byEP[ep] = Discovered{Endpoint: ep, Adapter: a}
+			byEP[ep] = Discovered{Endpoint: ep, Adapter: a, APIKey: se.APIKey}
 		}
 	}
 	out := make([]Discovered, 0, len(byEP))

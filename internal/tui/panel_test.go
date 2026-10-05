@@ -615,6 +615,23 @@ func TestServerLine2NInferHint(t *testing.T) {
 	}
 }
 
+// TestServerLine2MetricsErr pins the distinction from a plain "metrics
+// disabled" server: a non-empty MetricsErr (set when /metrics answered
+// something other than 200/404/501) must render its own hint naming the
+// failure, not the "start llama-server with --metrics" advice — that advice
+// would be actively wrong here, since metrics may well be enabled.
+func TestServerLine2MetricsErr(t *testing.T) {
+	th := DefaultTheme()
+	srv := &model.LLMServer{Kind: "llama.cpp", Endpoint: "http://h:8080", Status: model.StatusOK, MetricsErr: "http 401"}
+	got := serverLine2(srv, th)
+	if !strings.Contains(got, "metrics unavailable") || !strings.Contains(got, "http 401") {
+		t.Fatalf("serverLine2 = %q, want it to name the metrics failure", got)
+	}
+	if strings.Contains(got, "start llama-server with --metrics") {
+		t.Fatalf("serverLine2 = %q, must not suggest --metrics when MetricsErr is set", got)
+	}
+}
+
 // TestRenderHostStripLoadingServerHint checks the fixture end to end: bravo's
 // host-level server is loading, so its block explains that rather than
 // telling the user to restart with --metrics.

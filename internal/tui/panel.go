@@ -147,10 +147,14 @@ func serverLine1(srv *model.LLMServer, th Theme) string {
 }
 
 // serverLine2 renders a server's detail line: generation stats, a status
-// note (unreachable/loading/sleeping), a "metrics disabled" hint, or a
-// router tag — indented two spaces under line 1. The status arms come
-// before the Metrics arm: an unreachable or loading server has no Metrics
-// either, and must not be told to restart with --metrics.
+// note (unreachable/loading/sleeping), a "metrics disabled" or "metrics
+// unavailable" hint, or a router tag — indented two spaces under line 1.
+// The status arms come before the Metrics arms: an unreachable or loading
+// server has no Metrics either, and must not be told to restart with
+// --metrics. MetricsErr comes before the disabled default: it means
+// /metrics answered with something other than 200/404/501 (a bad/missing
+// api_key, a 5xx, a proxy hiccup) so metrics may actually be enabled, and
+// the default's advice to turn metrics on would be wrong.
 func serverLine2(srv *model.LLMServer, th Theme) string {
 	switch {
 	case srv.Role == "router":
@@ -180,6 +184,8 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 		}
 		parts = append(parts, fmt.Sprintf("ctx %d", srv.CtxSize))
 		return "  " + th.LLM.Render(strings.Join(parts, " · "))
+	case srv.MetricsErr != "":
+		return "  " + th.Err.Render("metrics unavailable — "+srv.MetricsErr)
 	default:
 		return "  " + th.Dim.Render(metricsOffHint(srv))
 	}

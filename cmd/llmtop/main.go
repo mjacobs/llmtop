@@ -188,7 +188,7 @@ func runAgent(args []string) error {
 	for _, h := range cfg.Hosts {
 		if h.Local {
 			for _, e := range h.LLMEndpoints {
-				static = append(static, llm.StaticEndpoint{URL: e.URL, Kind: e.Kind})
+				static = append(static, llm.StaticEndpoint{URL: e.URL, Kind: e.Kind, APIKey: e.APIKey})
 			}
 		}
 	}

@@ -192,8 +192,9 @@ gpus  = [1, 0]           # optional: show only these GPU indices, in this order
                          # (omit for all GPUs in device order)
 
   [[hosts.llm_endpoints]] # optional static additions for this (local) host
-  url  = "http://127.0.0.1:8081"
-  kind = "llama.cpp"      # engine: "llama.cpp" (default), "vllm", "ninfer"
+  url     = "http://127.0.0.1:8081"
+  kind    = "llama.cpp"  # engine: "llama.cpp" (default), "vllm", "ninfer"
+  api_key = "…"          # optional: sent as "Authorization: Bearer …"
 
 [[hosts]]
 name  = "gpu-box"
@@ -214,6 +215,11 @@ whichever process runs the collector for that host. `kind` names the engine
 serving that URL so the right API is polled; it defaults to `llama.cpp`, so a
 vLLM or NInfer endpoint must say so. For a remote host,
 declare its `llm_endpoints` in the agent's own config on that machine instead.
+An entry's optional `api_key` is sent as `Authorization: Bearer <api_key>` on
+every request to that URL — for a `llama-server` started with its own
+`--api-key` (the vLLM and NInfer adapters do not send it). If the URL also
+matches a process-scan discovery (same host and port), the key still applies:
+only the URL needs to be listed once, purely to carry the key.
 
 `gpus` and the `[ui]` toggles shape only what the TUI reading this config
 draws: collection, history, and what an agent serves are unchanged. A GPU
@@ -267,8 +273,12 @@ so servers remain tellable apart).
   static endpoint (below).
 - **Start llama-server with `--metrics` enabled** to get throughput stats
   (prompt/generation tok/s, KV-cache usage, request queue depth). Without it,
-  the server still shows up with model/context/slot info and a
-  `metrics disabled` hint instead of throughput numbers.
+  `/metrics` answers 404/501 and the server shows up with model/context/slot
+  info and a `metrics disabled` hint instead of throughput numbers. Any other
+  `/metrics` failure (wrong or missing `api_key`, a 5xx, a proxy hiccup) is a
+  different case — metrics may well be enabled — and shows as a
+  `metrics unavailable` hint naming the failure instead, so the two are never
+  confused.
 - **Idle sleep is respected.** llama.cpp counts every `/metrics` scrape as
   activity, so a naive monitor would keep a `--sleep-idle-seconds` server
   awake forever. When `llmtop` sees `--sleep-idle-seconds` on a discovered
@@ -290,12 +300,15 @@ so servers remain tellable apart).
   Kubernetes `hostPID: true`) so discovery sees the command line — noting that
   sharing the host PID namespace is a real reduction in container isolation,
   so weigh it like any other security tradeoff.
-- **`--api-key` servers are not supported yet.** llama.cpp exempts `/health`
-  from its API-key check, so such a server appears as `ok` but with no model
-  name and a spurious `metrics disabled` hint, because `/props` and `/metrics`
-  are refused. If the server is bound to loopback anyway, it can run without
-  a key; a server reachable from the network should keep its key (or sit
-  behind an authenticating proxy) and accept the reduced display for now.
+- **`--api-key` servers are supported** via each `[[hosts.llm_endpoints]]`
+  entry's optional `api_key` (see [Configuration](#configuration) above),
+  sent as `Authorization: Bearer <api_key>`. llama.cpp exempts `/health` from its
+  API-key check, so a server declared without `api_key` still shows as `ok`,
+  just with no model name and a `metrics unavailable — http 401` hint instead
+  of a spurious `metrics disabled` one, because `/props` and `/metrics` are
+  refused. Discovery via process scan cannot see a `--api-key` flag's value,
+  so a scanned server that needs one must also get a matching
+  `llm_endpoints` entry purely to carry the key (see above).
 
 ## vLLM notes
 

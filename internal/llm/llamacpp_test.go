@@ -520,6 +520,75 @@ func TestSleepIdleGateDropsCacheWhenMetricsBecomeUnsupported(t *testing.T) {
 	}
 }
 
+// TestSleepIdleGateKeepsMetricsErrWhileGated pins the failure half of the
+// gate: 401/5xx/transport failures are not evidence that the server is quiet
+// and metrics are fine. Once such failures exhaust the grace period and the
+// gate stops scraping /metrics, the adapter must keep reporting the last
+// error instead of silently serving the sample cached before the failures
+// (or, with no cache, looking like metrics are disabled).
+func TestSleepIdleGateKeepsMetricsErrWhileGated(t *testing.T) {
+	metricsCode, hits := 200, 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(workerProps))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if metricsCode != 200 {
+			w.WriteHeader(metricsCode)
+			return
+		}
+		_, _ = w.Write([]byte(idleMetrics))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a := NewLlamaCpp()
+	base := time.Unix(13000, 0)
+	registerSleepIdle(t, a, srv)
+
+	a.Now = func() time.Time { return base }
+	if s := a.Fetch(context.Background(), srv.URL, FetchHint{}); s.Metrics == nil {
+		t.Fatal("setup: first 200 poll must yield metrics")
+	}
+
+	metricsCode = 401 // wrong/missing --api-key: metrics may well be enabled
+	var last model.LLMServer
+	for i := 1; i < 6; i++ {
+		a.Now = func() time.Time { return base.Add(time.Duration(i) * 2 * time.Second) }
+		last = a.Fetch(context.Background(), srv.URL, FetchHint{})
+	}
+	if hits != metricsIdleGraceTicks {
+		t.Fatalf("/metrics hit %d times, want %d (one 200 + 401s until gated)", hits, metricsIdleGraceTicks)
+	}
+	if last.MetricsErr != "http 401" {
+		t.Fatalf("gated poll MetricsErr = %q, want %q", last.MetricsErr, "http 401")
+	}
+	if last.Metrics != nil {
+		t.Fatalf("gated poll served cached metrics despite an unresolved failure: %+v", last.Metrics)
+	}
+
+	// A successful scrape clears the sticky error, and the gate goes back
+	// to serving the (now current) cached sample.
+	metricsCode = 200
+	a.Now = func() time.Time { return base.Add(12 * time.Second) }
+	s := a.Fetch(context.Background(), srv.URL, FetchHint{GPUActive: true}) // reopen the gate
+	if s.MetricsErr != "" || s.Metrics == nil {
+		t.Fatalf("recovered poll: MetricsErr = %q, Metrics = %+v; want cleared error and metrics", s.MetricsErr, s.Metrics)
+	}
+	a.Now = func() time.Time { return base.Add(14 * time.Second) }
+	gated := a.Fetch(context.Background(), srv.URL, FetchHint{})
+	if gated.MetricsErr != "" {
+		t.Fatalf("gated poll after recovery: MetricsErr = %q, want empty", gated.MetricsErr)
+	}
+	if gated.Metrics == nil {
+		t.Fatal("gated poll after recovery must serve the cached sample")
+	}
+}
+
 func TestDetectClearsStateWhenSleepIdleRemoved(t *testing.T) {
 	props := workerProps
 	metrics, hits := idleMetrics, 0
@@ -595,5 +664,121 @@ func TestFetchDoesNotFollowRedirects(t *testing.T) {
 	}
 	if n := atomic.LoadInt32(&targetHits); n != 0 {
 		t.Fatalf("redirect target was contacted %d time(s); redirects must not be followed", n)
+	}
+}
+
+// TestFetchMetricsErrClassification pins the distinction the panel/overview
+// renderers depend on: a /metrics response that is neither 200 (parsed) nor
+// 404/501 (definitively disabled) must leave Metrics nil AND set MetricsErr,
+// so the "restart with --metrics" hint is never shown for a server whose
+// metrics may actually be enabled (wrong/missing api_key, an overloaded
+// server, a proxy hiccup).
+func TestFetchMetricsErrClassification(t *testing.T) {
+	cases := []struct {
+		name          string
+		metricsStatus int
+		wantMetrics   bool
+		wantErr       string
+	}{
+		{"unauthorized", http.StatusUnauthorized, false, "http 401"},
+		{"serverError", http.StatusInternalServerError, false, "http 500"},
+		{"badGateway", http.StatusBadGateway, false, "http 502"},
+		{"disabled404", http.StatusNotFound, false, ""},
+		{"disabled501", http.StatusNotImplemented, false, ""},
+		{"ok", http.StatusOK, true, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var metrics *string
+			if tc.wantMetrics {
+				body := metricsBody(1, 2)
+				metrics = &body
+			}
+			srv := newFakeServer(t, workerProps, tc.metricsStatus, metrics)
+			s := NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{})
+			if s.Status != model.StatusOK {
+				t.Fatalf("status = %q, want ok", s.Status)
+			}
+			if (s.Metrics != nil) != tc.wantMetrics {
+				t.Fatalf("Metrics present = %v, want %v", s.Metrics != nil, tc.wantMetrics)
+			}
+			if s.MetricsErr != tc.wantErr {
+				t.Fatalf("MetricsErr = %q, want %q", s.MetricsErr, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestFetchMetricsErrOnTransportFailure covers the transport-error half of
+// the same classification: /health and /props succeed, but /metrics itself
+// fails at the connection level (e.g. a proxy hiccup) rather than returning
+// a status code at all.
+func TestFetchMetricsErrOnTransportFailure(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(workerProps))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("ResponseWriter does not support hijacking")
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Fatalf("hijack: %v", err)
+		}
+		_ = conn.Close() // drop the connection with no response at all
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	s := NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{})
+	if s.Status != model.StatusOK || s.Metrics != nil {
+		t.Fatalf("status/metrics = %q/%v, want ok/nil", s.Status, s.Metrics)
+	}
+	if s.MetricsErr == "" {
+		t.Fatal("MetricsErr must be set on a /metrics transport failure")
+	}
+}
+
+// TestFetchSendsAPIKeyAuthorization pins the --api-key support: a non-empty
+// FetchHint.APIKey must be sent as "Authorization: Bearer <key>" on every
+// request llama.cpp fields (health/props/metrics all get it — llama.cpp
+// itself decides which to enforce), and no such header goes out when the
+// hint carries no key.
+func TestFetchSendsAPIKeyAuthorization(t *testing.T) {
+	var gotHealth, gotProps, gotMetrics string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		gotHealth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/props", func(w http.ResponseWriter, r *http.Request) {
+		gotProps = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(workerProps))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		gotMetrics = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(metricsBody(1, 2)))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{APIKey: "sk-secret"})
+	for name, got := range map[string]string{"health": gotHealth, "props": gotProps, "metrics": gotMetrics} {
+		if want := "Bearer sk-secret"; got != want {
+			t.Errorf("%s Authorization header = %q, want %q", name, got, want)
+		}
+	}
+
+	gotHealth, gotProps, gotMetrics = "", "", ""
+	NewLlamaCpp().Fetch(context.Background(), srv.URL, FetchHint{})
+	for name, got := range map[string]string{"health": gotHealth, "props": gotProps, "metrics": gotMetrics} {
+		if got != "" {
+			t.Errorf("%s Authorization header = %q, want none (no api_key configured)", name, got)
+		}
 	}
 }

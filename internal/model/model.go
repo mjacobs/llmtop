@@ -74,9 +74,14 @@ type LLMServer struct {
 	Model      string `json:"model"`          // alias, else basename(model_path)
 	CtxSize    int    `json:"ctx_size"`
 	SlotsTotal int    `json:"slots_total"`
-	// Metrics is nil when /metrics is unavailable (sole signal for
-	// "metrics off"; Status stays "ok" per spec).
-	Metrics *LLMMetrics `json:"metrics,omitempty"`
+	// Metrics is nil when /metrics is unavailable. When MetricsErr is also
+	// empty, that means llama-server answered 404/501 — metrics are
+	// disabled by config (started without --metrics). When MetricsErr is
+	// non-empty, /metrics failed for some other reason (wrong or missing
+	// api_key, 5xx, a proxy error): metrics may actually be enabled, and
+	// renderers must show that reason instead of suggesting --metrics.
+	Metrics    *LLMMetrics `json:"metrics,omitempty"`
+	MetricsErr string      `json:"metrics_err,omitempty"`
 }
 
 type LLMMetrics struct {
@@ -149,6 +154,7 @@ func (s *Snapshot) Sanitize() {
 		srv.Role = CleanString(srv.Role)
 		srv.Status = CleanString(srv.Status)
 		srv.Model = CleanString(srv.Model)
+		srv.MetricsErr = CleanString(srv.MetricsErr)
 	}
 	for i := range s.Errors {
 		s.Errors[i] = CleanString(s.Errors[i])

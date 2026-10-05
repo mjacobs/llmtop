@@ -89,7 +89,7 @@ func (c *Collector) Collect(ctx context.Context) model.Snapshot {
 			defer wg.Done()
 			fctx, cancel := context.WithTimeout(ctx, llmFetchTimeout)
 			defer cancel()
-			srv := d.Adapter.Fetch(fctx, d.Endpoint, llm.FetchHint{GPUActive: activePIDs[d.PID]})
+			srv := d.Adapter.Fetch(fctx, d.Endpoint, llm.FetchHint{GPUActive: activePIDs[d.PID], APIKey: d.APIKey})
 			srv.PID = d.PID
 			s.Servers[i] = srv
 		}(i, d)

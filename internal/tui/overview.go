@@ -302,9 +302,12 @@ func gpuLine(h *HostState, idx int, th Theme, width int) string {
 
 // serverLine renders one LLM server row: a colored bullet, model (or
 // endpoint when no alias is set), an error tag when unreachable/loading, and
-// either generation stats, a "router" tag, or a "metrics off" hint. An
+// either generation stats, a "router" tag, a "metrics off" hint, or — when
+// /metrics failed with something other than 404/501 (bad api_key, 5xx,
+// proxy hiccup) — a "metrics error" tag naming why, instead of the
+// "off" hint that would wrongly suggest --metrics is missing. An
 // unreachable or loading server has no Metrics either, but its status tag
-// already explains why, so it gets no "--metrics off" hint.
+// already explains why, so it gets neither hint.
 func serverLine(srv *model.LLMServer, th Theme, width int) string {
 	label := srv.Model
 	if label == "" {
@@ -335,6 +338,8 @@ func serverLine(srv *model.LLMServer, th Theme, width int) string {
 			stats += fmt.Sprintf(" %d/%d slots", srv.Metrics.RequestsProcessing, srv.SlotsTotal)
 		}
 		line += th.LLM.Render(stats)
+	case srv.MetricsErr != "":
+		line += th.Err.Render(" (metrics: " + srv.MetricsErr + ")")
 	default:
 		line += th.Dim.Render(" " + compactMetricsHint(srv))
 	}

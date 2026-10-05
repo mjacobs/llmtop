@@ -44,7 +44,10 @@ func Adapters() []Adapter {
 // SM utilization this tick — used to re-enable /metrics polling on servers
 // whose idle-sleep timer a poll would otherwise reset (llama.cpp counts any
 // /metrics scrape as activity, so unconditional polling keeps the model
-// resident forever).
+// resident forever). APIKey, when non-empty, is sent as
+// "Authorization: Bearer <APIKey>" on every request to this endpoint, for a
+// server started with llama-server's own --api-key.
 type FetchHint struct {
 	GPUActive bool
+	APIKey    string
 }

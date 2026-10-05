@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -39,6 +40,12 @@ type epState struct {
 	haveSample                       bool // counters below are valid
 	lastPrompt, lastPred, lastDecode float64
 	cached                           *model.LLMMetrics // last scrape, served while gated
+
+	// metricsErr is the last non-definitive /metrics failure (401, 5xx,
+	// transport error). It is reported on every poll the gate skips the
+	// scrape, so an unreachable /metrics is not mistaken for a quiet
+	// server serving cached numbers. Cleared by a 200 or a 404/501.
+	metricsErr string
 }
 
 func NewLlamaCpp() *LlamaCpp {
@@ -113,10 +120,17 @@ type propsResponse struct {
 	} `json:"default_generation_settings"`
 }
 
-func (a *LlamaCpp) get(ctx context.Context, url string) (int, []byte, error) {
+// get issues a GET request, attaching "Authorization: Bearer <apiKey>" when
+// apiKey is non-empty (a server started with llama-server's own --api-key).
+// llama.cpp exempts /health from the api-key check, but sending the header
+// there too is harmless and keeps every call site uniform.
+func (a *LlamaCpp) get(ctx context.Context, url, apiKey string) (int, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return 0, nil, err
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	resp, err := a.Client.Do(req)
 	if err != nil {
@@ -130,7 +144,7 @@ func (a *LlamaCpp) get(ctx context.Context, url string) (int, []byte, error) {
 func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) model.LLMServer {
 	s := model.LLMServer{Kind: llamaKind, Endpoint: endpoint}
 
-	code, _, err := a.get(ctx, endpoint+"/health")
+	code, _, err := a.get(ctx, endpoint+"/health", hint.APIKey)
 	switch {
 	case err != nil:
 		s.Status = model.StatusUnreachable
@@ -145,7 +159,7 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 	}
 
 	var sleepingNow, sleepKnown bool
-	if code, body, err := a.get(ctx, endpoint+"/props"); err == nil && code == http.StatusOK {
+	if code, body, err := a.get(ctx, endpoint+"/props", hint.APIKey); err == nil && code == http.StatusOK {
 		var p propsResponse
 		if json.Unmarshal(body, &p) == nil {
 			s.Role = p.Role
@@ -193,6 +207,15 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 	}
 	if st.sleepIdle && !hint.GPUActive && st.grace <= 0 {
 		// Quiet server: skip /metrics so it can reach its idle deadline.
+		if st.metricsErr != "" {
+			// The scrapes that exhausted the grace period were
+			// failures, not quiet successes. Keep reporting why
+			// instead of serving a cached sample that predates the
+			// failure or, worse, looking like metrics are off.
+			s.MetricsErr = st.metricsErr
+			a.mu.Unlock()
+			return s
+		}
 		// Serve the last scrape with rates zeroed so the panel keeps its
 		// identity/kv/slot info instead of claiming "metrics off".
 		if st.cached != nil {
@@ -205,8 +228,9 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 	}
 	a.mu.Unlock()
 
-	mcode, mbody, merr := a.get(ctx, endpoint+"/metrics")
-	if merr == nil && (mcode == http.StatusNotImplemented || mcode == http.StatusNotFound) {
+	mcode, mbody, merr := a.get(ctx, endpoint+"/metrics", hint.APIKey)
+	switch {
+	case merr == nil && (mcode == http.StatusNotImplemented || mcode == http.StatusNotFound):
 		// Metrics are definitively unsupported (llama.cpp answers 501 when
 		// --metrics is off), so no activity signal will ever arrive on this
 		// path. Count the poll as quiet; after the grace period the
@@ -222,11 +246,30 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 		// a fresh first sample rather than amortized against old anchors.
 		st.cached = nil
 		st.haveSample = false
+		st.metricsErr = ""
 		a.mu.Unlock()
 		a.rates.Reset(endpoint)
 		return s
-	}
-	if merr == nil && mcode == http.StatusOK {
+	case merr != nil || mcode != http.StatusOK:
+		// /metrics answered with neither success nor one of the
+		// "definitively disabled" codes above: a wrong/missing api_key
+		// (401), a 5xx, a proxy hiccup, or a transport error. Metrics may
+		// well be enabled here, so record why instead of falling through
+		// to the "disabled" hint below, which would wrongly tell someone
+		// to restart with a flag they probably already passed.
+		if merr != nil {
+			s.MetricsErr = "request failed"
+		} else {
+			s.MetricsErr = fmt.Sprintf("http %d", mcode)
+		}
+		a.mu.Lock()
+		st.metricsErr = s.MetricsErr
+		if st.grace > 0 {
+			st.grace--
+		}
+		a.mu.Unlock()
+		return s
+	case mcode == http.StatusOK:
 		m := ParsePromText(mbody)
 		met := &model.LLMMetrics{
 			PromptTokensTotal:    m["llamacpp:prompt_tokens_total"],
@@ -261,6 +304,7 @@ func (a *LlamaCpp) Fetch(ctx context.Context, endpoint string, hint FetchHint) m
 			st.grace--
 		}
 		st.haveSample = true
+		st.metricsErr = ""
 		st.lastPrompt, st.lastPred, st.lastDecode = met.PromptTokensTotal, met.PredictedTokensTotal, decode
 		cached := *met
 		st.cached = &cached

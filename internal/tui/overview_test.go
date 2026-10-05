@@ -97,6 +97,22 @@ func TestServerLineMetricsHintIsEngineAware(t *testing.T) {
 	}
 }
 
+// TestServerLineMetricsErr pins the compact-tier equivalent of
+// TestServerLine2MetricsErr: a non-empty MetricsErr gets its own "(metrics:
+// ...)" tag instead of the "(--metrics off)" hint, since /metrics answering
+// something other than 200/404/501 does not mean metrics are disabled.
+func TestServerLineMetricsErr(t *testing.T) {
+	th := DefaultTheme()
+	srv := &model.LLMServer{Kind: "llama.cpp", Endpoint: "http://h:8080", Status: model.StatusOK, MetricsErr: "http 401"}
+	got := serverLine(srv, th, 100)
+	if !strings.Contains(got, "(metrics: http 401)") {
+		t.Fatalf("serverLine = %q, want it to name the metrics failure", got)
+	}
+	if strings.Contains(got, "--metrics off") {
+		t.Fatalf("serverLine = %q, must not say --metrics off when MetricsErr is set", got)
+	}
+}
+
 func TestRenderOverviewWidth(t *testing.T) {
 	hosts := SampleHostStates()
 	out := RenderOverview(hosts, 0, 80, 60, DefaultTheme())
