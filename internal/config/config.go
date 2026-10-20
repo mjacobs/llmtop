@@ -56,14 +56,31 @@ type AgentConfig struct {
 	Token  string `toml:"token"`
 }
 
-// UIConfig holds display-only toggles for the TUI. Both default to true;
+// UIConfig holds display-only toggles for the TUI. All default to true;
 // they never change what is collected or what an agent serves.
 type UIConfig struct {
-	// ShowAddresses=false hides network identity from the display for
-	// screenshots and demos: host titles become host1, host2, …; server
-	// endpoints render as :port; error banners have the host's address
-	// struck out.
+	// ShowAddresses=false hides network addresses from the display: server
+	// endpoints render as :port; error banners, collection-error lines and
+	// server status and metrics-error text have the host's configured
+	// address and every IP address struck out (IPv4 or IPv6, with a port,
+	// brackets or zone, inside a URL or beside punctuation; not decimal,
+	// hex, octal or zero-padded IPv4, name-shaped text such as
+	// ip-192-0-2-10, or an address joined to letters or digits without a
+	// separator). To bound that work per snapshot, each text is cut to its
+	// first 4 KB, at most 8 collection-error lines show with a count of the
+	// rest, and past 32 KB of text in one snapshot the rest is hidden, not
+	// shown unscrubbed. A host title that is only an address (an IPv4 or IPv6
+	// address with the usual wrapping, or the same text as the host's own
+	// address or its host part, as a --connect target is until its agent
+	// reports a name) becomes host1, host2, …. Decimal, hex, octal and
+	// zero-padded IPv4 spellings, a trailing dot, and name-shaped text such
+	// as ip-192-0-2-77 are not recognised and still show. Other host names
+	// stay; see ShowHostnames.
 	ShowAddresses bool `toml:"show_addresses"`
+	// ShowHostnames=false replaces every host title with host1, host2, …
+	// in config order. Screenshot mode sets both this and ShowAddresses to
+	// false.
+	ShowHostnames bool `toml:"show_hostnames"`
 	// ShowGraphicsProcs=false drops graphics-class rows from the GPU
 	// PROCESSES table. Their VRAM stays in the mem chart's total series —
 	// that comes from the GPU's own used-memory counter, not the table.
@@ -158,7 +175,7 @@ func Default() Config {
 		RefreshMS: 1000,
 		Hosts:     []HostConfig{{Name: name, Local: true}},
 		Agent:     AgentConfig{Listen: ":9832"},
-		UI:        UIConfig{ShowAddresses: true, ShowGraphicsProcs: true},
+		UI:        UIConfig{ShowAddresses: true, ShowHostnames: true, ShowGraphicsProcs: true},
 		// Layout stays zero: EffectiveMode reads that as "auto".
 	}
 }

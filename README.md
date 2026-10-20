@@ -98,6 +98,10 @@ llmtop agent --listen :9832
 llmtop --connect remote-host:9832
 ```
 
+A `--connect` host is titled with the name its agent reports, which is that
+machine's hostname, once the agent answers. To choose the title yourself,
+declare the host in the config file with a `name` (see below).
+
 To run the agent permanently as a systemd user service, install `llmtop` on
 that host and install the included unit. The unit expects the binary at
 `~/.local/bin/llmtop` (where `make install` puts it); if you used a custom
@@ -180,8 +184,14 @@ refresh_ms = 1000        # TUI poll and local sample cadence; on an agent host,
                          # the agent's own sample cadence and history depth
 
 [ui]                      # display-only; never changes what is collected
-show_addresses      = true # false: host titles become host1…, endpoints render
-                           # as :port, error banners drop the host's address
+show_addresses      = true # false: endpoints render as :port, error banners
+                           # "!" error lines and server status text drop the
+                           # configured address and every IP address (not
+                           # decimal/hex/octal/zero-padded IPv4, name-shaped
+                           # text like ip-192-0-2-10, or an address stuck to
+                           # letters or digits; at most 8 "!" lines, each
+                           # cut to 4 KB), address-only titles become host1…
+show_hostnames      = true # false: every host title becomes host1, host2, …
 show_graphics_procs = true # false: hide graphics-class rows in the process
                            # table (their VRAM stays in the purple mem total)
 
@@ -275,9 +285,25 @@ LLM server running only on hidden GPUs moves up into its host's strip
 rather than vanishing. `show_graphics_procs = false` trims Xorg-style rows
 from the process table, but the memory chart still shows their VRAM inside
 the purple total — that series comes from the GPU's own used-memory
-counter, not the table. `show_addresses = false` is the screenshot mode:
-hostnames, IPs, and endpoint hosts are redacted in the display (ports stay,
-so servers remain tellable apart).
+counter, not the table. `show_addresses = false` redacts IPs and endpoint
+hosts in the display (ports stay, so servers remain tellable apart), and a
+host title that is only an address shows as `host1`, `host2`, …: an IPv4 or
+IPv6 address, which may carry a port, brackets, an IPv6 zone, a `/24` prefix,
+a path, `user@`, a query or a fragment, or a name that is the same text as the
+host's own address or its host part (a host named `gpu1` reached at
+`gpu1:9832`). Other spellings of an address are not recognised and still show:
+decimal, hex, octal and zero-padded IPv4 forms, a trailing dot, and
+name-shaped text such as `ip-192-0-2-77`. Other host names stay. Error
+banners, a host's `!` collection-error lines, and a server's status and
+metrics-error text lose the host's configured address and every IP address
+in the same way. A remote agent decides how much of that text it sends, so
+the work is bounded per snapshot: each text is cut to its first 4 KB (one
+screen line of it shows in any case), at most 8 `!` lines show, followed by
+`… N more errors`, and past 32 KB of text in one snapshot the rest is hidden
+rather than shown unscrubbed. Hiding addresses then costs at most a few
+milliseconds per snapshot, whatever the agent sends.
+`show_hostnames = false` titles every host that way. Set both to `false` for
+screenshots.
 
 ## Key bindings
 

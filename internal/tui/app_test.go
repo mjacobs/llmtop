@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mjacobs/llmtop/internal/client"
 	"github.com/mjacobs/llmtop/internal/model"
@@ -17,6 +18,7 @@ func testApp() (*App, chan client.Update) {
 	a := NewApp(ViewConfig{
 		Hosts:             []HostSpec{{Name: "h1"}, {Name: "h2"}},
 		ShowAddresses:     true,
+		ShowHostnames:     true,
 		ShowGraphicsProcs: true,
 	}, ch, time.Second, func(time.Duration) {}, "test")
 	return a, ch
@@ -120,6 +122,7 @@ func TestRefreshKeysSkipNoOpCallback(t *testing.T) {
 	a := NewApp(ViewConfig{
 		Hosts:             []HostSpec{{Name: "h1"}},
 		ShowAddresses:     true,
+		ShowHostnames:     true,
 		ShowGraphicsProcs: true,
 	}, ch, minRefresh, func(d time.Duration) {
 		calls++
@@ -149,6 +152,30 @@ func TestRefreshKeysSkipNoOpCallback(t *testing.T) {
 	}
 	if a.refresh != 500*time.Millisecond {
 		t.Fatalf("refresh after '-' = %v, want 500ms", a.refresh)
+	}
+}
+
+// TestConnectHostStripShowsAgentName: a --connect host's strip is titled
+// with the name its agent reports, not the address it was reached at.
+func TestConnectHostStripShowsAgentName(t *testing.T) {
+	const addr = "192.0.2.50:9832"
+	ch := make(chan client.Update, 1)
+	a := NewApp(ViewConfig{
+		Hosts:             []HostSpec{{Name: addr, Addr: addr, NameFromAgent: true}},
+		ShowAddresses:     true,
+		ShowHostnames:     true,
+		ShowGraphicsProcs: true,
+	}, ch, time.Second, func(time.Duration) {}, "test")
+	m, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	a = m.(*App)
+	ch <- client.Update{Host: addr, Snapshot: &model.Snapshot{
+		Host: model.HostInfo{Name: "bravo", Hostname: "bravo"},
+		GPUs: []model.GPU{{Index: 0, UtilPct: 50, MemUsed: 1, MemTotal: 2}}}}
+	m, _ = a.Update(a.readUpdate()())
+	a = m.(*App)
+	out := ansi.Strip(a.render())
+	if !strings.Contains(out, "bravo · driver") || strings.Contains(out, addr) {
+		t.Fatalf("want the strip titled bravo and no address:\n%s", out)
 	}
 }
 

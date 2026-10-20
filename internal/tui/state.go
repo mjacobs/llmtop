@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/mjacobs/llmtop/internal/client"
 	"github.com/mjacobs/llmtop/internal/history"
 	"github.com/mjacobs/llmtop/internal/model"
@@ -18,7 +20,7 @@ const ringCapacity = 300
 // graphics processes, redacted addresses).
 type HostState struct {
 	Name    string // routing key for incoming updates
-	Display string // rendered title; differs from Name only when addresses are hidden
+	Display string // rendered title: Name, the agent's own name (--connect hosts), or hostN when hidden
 	Snap    *model.Snapshot
 	ErrMsg  string
 	view    hostView
@@ -34,7 +36,7 @@ func NewHostState(name string) *HostState {
 	return &HostState{
 		Name:        name,
 		Display:     name,
-		view:        hostView{showGraphics: true, showAddrs: true},
+		view:        hostView{showGraphics: true, showAddrs: true, showNames: true},
 		UtilHist:    map[int]*history.Ring[float64]{},
 		MemHist:     map[int]*history.Ring[float64]{},
 		LLMUtilHist: map[int]*history.Ring[float64]{},
@@ -50,7 +52,9 @@ func NewHostState(name string) *HostState {
 //   - u.Snapshot != nil: clear ErrMsg, adopt the new Snap, and push one
 //     sample per series. Remote sources can redeliver the same Snapshot at
 //     poll cadence (no new sample yet upstream) — dedupe on Timestamp so
-//     that repeat doesn't double-push ring points.
+//     that repeat doesn't double-push ring points. A --connect host also
+//     takes its title from the name the agent reports, and keeps it while
+//     later polls fail.
 func (h *HostState) Apply(u client.Update) {
 	if u.Err != nil {
 		h.ErrMsg = h.view.scrubErr(u.Err.Error())
@@ -69,6 +73,9 @@ func (h *HostState) Apply(u client.Update) {
 
 	h.ErrMsg = ""
 	h.Snap = h.view.filterSnapshot(u.Snapshot)
+	if h.view.nameFromAgent {
+		h.adoptReportedName(u.Snapshot.Host)
+	}
 
 	for _, gpu := range h.Snap.GPUs {
 		ringPush(h.UtilHist, gpu.Index, float64(gpu.UtilPct))
@@ -81,6 +88,19 @@ func (h *HostState) Apply(u client.Update) {
 			continue
 		}
 		ringPushStr(h.GenTPSHist, srv.Endpoint, srv.Metrics.PredictedTPS)
+	}
+}
+
+// adoptReportedName titles a --connect host with the name its agent
+// reports (an agent names itself after its os.Hostname). An agent that
+// reports nothing, or only blanks, leaves the current title alone.
+func (h *HostState) adoptReportedName(host model.HostInfo) {
+	name := strings.TrimSpace(host.Name)
+	if name == "" {
+		name = strings.TrimSpace(host.Hostname)
+	}
+	if name != "" {
+		h.Display = h.view.title(name)
 	}
 }
 

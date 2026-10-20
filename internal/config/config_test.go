@@ -23,6 +23,7 @@ refresh_ms = 500
 
 [ui]
 show_addresses      = false
+show_hostnames      = false
 show_graphics_procs = false
 
 [[hosts]]
@@ -70,8 +71,8 @@ token  = "s3cret"
 	if cfg.Agent.Listen != ":9000" {
 		t.Fatalf("agent = %+v", cfg.Agent)
 	}
-	if cfg.UI.ShowAddresses || cfg.UI.ShowGraphicsProcs {
-		t.Fatalf("ui = %+v, want both toggles false", cfg.UI)
+	if cfg.UI.ShowAddresses || cfg.UI.ShowHostnames || cfg.UI.ShowGraphicsProcs {
+		t.Fatalf("ui = %+v, want every toggle false", cfg.UI)
 	}
 	if got := cfg.Hosts[0].GPUs; len(got) != 2 || got[0] != 1 || got[1] != 0 {
 		t.Fatalf("gpus = %v, want [1 0]", got)
@@ -89,8 +90,8 @@ func TestUIDefaultsOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.UI.ShowAddresses || !cfg.UI.ShowGraphicsProcs {
-		t.Fatalf("ui with no [ui] table = %+v, want both true", cfg.UI)
+	if !cfg.UI.ShowAddresses || !cfg.UI.ShowHostnames || !cfg.UI.ShowGraphicsProcs {
+		t.Fatalf("ui with no [ui] table = %+v, want every toggle true", cfg.UI)
 	}
 
 	cfg, err = Load(write(t, "[ui]\nshow_addresses = false\n"))
@@ -102,6 +103,10 @@ func TestUIDefaultsOn(t *testing.T) {
 	}
 	if !cfg.UI.ShowGraphicsProcs {
 		t.Fatal("show_graphics_procs must stay true when only show_addresses is set")
+	}
+	// Hiding addresses no longer hides host names: that is its own key.
+	if !cfg.UI.ShowHostnames {
+		t.Fatal("show_hostnames must stay true when only show_addresses is set")
 	}
 }
 
@@ -181,8 +186,8 @@ func assertDefault(t *testing.T, cfg Config) {
 	if cfg.Agent.Listen != ":9832" {
 		t.Fatalf("agent listen = %q, want :9832", cfg.Agent.Listen)
 	}
-	if !cfg.UI.ShowAddresses || !cfg.UI.ShowGraphicsProcs {
-		t.Fatalf("default ui = %+v, want both toggles true", cfg.UI)
+	if !cfg.UI.ShowAddresses || !cfg.UI.ShowHostnames || !cfg.UI.ShowGraphicsProcs {
+		t.Fatalf("default ui = %+v, want every toggle true", cfg.UI)
 	}
 	if cfg.Layout.EffectiveMode() != LayoutModeAuto || len(cfg.Layout.Slots) != 0 {
 		t.Fatalf("default layout = %+v, want the auto heuristic with no slots", cfg.Layout)

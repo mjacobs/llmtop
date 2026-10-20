@@ -78,6 +78,7 @@ func Run(cfg config.Config, connects []string, demo bool, version string) error 
 func viewFor(cfg config.Config, connects []string, demo bool) ViewConfig {
 	view := ViewConfig{
 		ShowAddresses:     cfg.UI.ShowAddresses,
+		ShowHostnames:     cfg.UI.ShowHostnames,
 		ShowGraphicsProcs: cfg.UI.ShowGraphicsProcs,
 		Layout:            layoutPrefFor(cfg.Layout),
 	}
@@ -89,7 +90,7 @@ func viewFor(cfg config.Config, connects []string, demo bool) ViewConfig {
 		view.Hosts = append(view.Hosts, HostSpec{Name: h.Name, Addr: h.Addr, GPUs: h.GPUs})
 	}
 	for _, addr := range connects {
-		view.Hosts = append(view.Hosts, HostSpec{Name: addr, Addr: addr})
+		view.Hosts = append(view.Hosts, HostSpec{Name: addr, Addr: addr, NameFromAgent: true})
 	}
 	return view
 }
