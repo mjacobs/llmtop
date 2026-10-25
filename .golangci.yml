@@ -1,5 +1,5 @@
 # golangci-lint v2 configuration. `make lint` / `make check` run this; CI pins
-# golangci-lint v2.12 (see .github/workflows/ci.yml), so use a v2.x locally to
+# golangci-lint v2.15.0 (see .github/workflows/ci.yml), so use the same version locally to
 # match. The standard set (errcheck, govet, ineffassign, staticcheck, unused)
 # plus a few cheap extras; gofmt is enforced separately by `make fmt-check`.
 version: "2"

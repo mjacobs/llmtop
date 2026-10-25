@@ -28,7 +28,7 @@ jobs:
       # `make check` execute the exact same gate.
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13
+          version: v2.15.0
           install-only: true
 
       - name: fmt-check, vet, lint, test

@@ -447,7 +447,7 @@ curl -H "Authorization: Bearer some-shared-secret" http://gpu-box:9832/api/v1/sn
 ## Development
 
 `make check` runs the same gate as CI: `gofmt` check, `go vet`, golangci-lint
-(v2; CI pins v2.12), and the unit tests. `make test-nvml` runs the env-gated
+(v2; CI pins v2.15.0), and the unit tests. `make test-nvml` runs the env-gated
 hardware smoke test against a real GPU (`LLMTOP_NVML_TEST=1`).
 
 ## Reporting issues
