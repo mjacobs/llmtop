@@ -3,10 +3,5 @@
 *.test
 /coverage.out
 
-# local agent/tooling scratch — never committed
-.superpowers/
-.worktrees/
-/.roborev/
-.kata.local.toml
 AGENTS.local.md
 CLAUDE.local.md
