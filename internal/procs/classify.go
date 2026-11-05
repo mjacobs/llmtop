@@ -13,6 +13,11 @@ var llmNamePatterns = []string{"llama-server", "vllm", "sglang", "ollama", "ninf
 
 func looksLLM(comm string) bool {
 	comm = strings.ToLower(comm)
+	// Strata's native binary is named exactly "strata". A substring match
+	// would also classify unrelated programs such as stratagus as LLM.
+	if comm == "strata" {
+		return true
+	}
 	for _, p := range llmNamePatterns {
 		if strings.Contains(comm, p) {
 			return true

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -402,5 +403,48 @@ func TestCollectPassesStaticSleepIdleHint(t *testing.T) {
 	}
 	if ad.hints["http://127.0.0.1:1004"].SleepIdle {
 		t.Fatal("sleep_idle omitted endpoint: SleepIdle hint = true, want false")
+	}
+}
+
+// Strata's frontend owns an HTTP listener while its native child owns the
+// GPU allocation. Exercise real discovery and HTTP parsing together, including
+// string sanitisation before the snapshot reaches the TUI or agent clients.
+func TestCollectStrataFrontendAndEngine(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			_, _ = w.Write([]byte(`{"service":"strata","status":"ok","loaded":true,"model":"qwen-demo","max_context":32768}`))
+		case "/metrics":
+			_, _ = w.Write([]byte(`{"engine":{"model":"qwen\u001b[31m-demo\n","max_context":32768},"live":{"state":"generating","tok_s":140},"totals":{"prompt_tokens":100,"output_tokens":200}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	port := strings.TrimPrefix(srv.URL, "http://127.0.0.1:")
+	vendor := gpu.NewFake(1)
+	vendor.SetProcs([]gpu.ProcSample{{PID: 101, GPUIndex: 0, MemBytes: 2 << 30, SMUtilPct: 80}})
+	scanner := &procs.Fake{Table: map[int32]procs.ProcInfo{
+		100: {PID: 100, PPID: 1, Comm: "python", Cmdline: []string{"/opt/strata/.venv/bin/python", "/opt/strata/serve/server.py", "--engine", "strata", "--host", "127.0.0.1", "--port", port}},
+		101: {PID: 101, PPID: 100, Comm: "strata", Cmdline: []string{"/opt/strata/bin/strata", "--serve", "--pack", "/models/demo"}},
+	}}
+	c := New("alpha", vendor, scanner, llm.Adapters(), nil, "test")
+	if err := c.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	s := c.Collect(context.Background())
+	if len(s.Servers) != 1 {
+		t.Fatalf("want one HTTP server, not a second server for its pipe engine: %+v", s.Servers)
+	}
+	server := s.Servers[0]
+	if server.Kind != llm.KindStrata || server.PID != 100 || server.Status != model.StatusOK || len(server.GPUs) != 1 || server.GPUs[0] != 0 {
+		t.Fatalf("server attribution = %+v", server)
+	}
+	if server.Model != "qwen[31m-demo" || server.Metrics == nil || server.Metrics.PredictedTPS != 140 || !server.Metrics.PredictedTPSEst {
+		t.Fatalf("server metrics/identity = %+v", server)
+	}
+	if len(s.Procs) != 1 || s.Procs[0].Class != model.ProcLLM || s.GPUs[0].LLMMemBytes != 2<<30 {
+		t.Fatalf("GPU child attribution = %+v / %+v", s.Procs, s.GPUs)
 	}
 }

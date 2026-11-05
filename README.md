@@ -5,8 +5,9 @@ inference servers and the NVIDIA GPUs under them. `llmtop` charts per-GPU
 utilization and memory the way [nvtop](https://github.com/Syllo/nvtop) does, and
 on top of that shows what your
 [llama.cpp](https://github.com/ggml-org/llama.cpp),
-[vLLM](https://github.com/vllm-project/vllm) and
-[NInfer](https://github.com/Neroued/ninfer) servers are doing — model loaded,
+[vLLM](https://github.com/vllm-project/vllm),
+[NInfer](https://github.com/Neroued/ninfer) and
+[Strata](https://github.com/Niko1221/Strata) servers are doing — model loaded,
 prompt and generation tokens/sec, KV-cache usage, slot occupancy — with GPU
 usage split between LLM serving and everything else (compositor, browsers, other
 compute). It watches the local machine and, through a small agent, any number of
@@ -23,10 +24,11 @@ remote GPU boxes in the same window.
 - **NVIDIA GPUs** with the proprietary driver installed (`libnvidia-ml.so.1`,
   i.e. NVML). No AMD, Intel, or Apple GPU support.
 - Runs as an unprivileged user; no root needed.
-- **llama.cpp `llama-server`, vLLM (`vllm serve`) and NInfer (`ninfer-serve`)**
+- **llama.cpp `llama-server`, vLLM (`vllm serve`), NInfer (`ninfer-serve`) and
+  Strata (`python …/serve/server.py --engine strata`)**
   are supported. The GPU-usage breakdown also counts SGLang and Ollama processes
-  as "LLM", but throughput, KV-cache, and slot details are read from llama.cpp
-  and vLLM only; NInfer has no metrics endpoint.
+  as "LLM". llama.cpp and vLLM provide throughput, KV-cache and slot details;
+  Strata provides throughput and slot details; NInfer has no metrics endpoint.
 - **A terminal with a UTF-8 font that has braille and box-drawing glyphs** (the
   charts are drawn with braille). True colour is recommended; the UI degrades to
   fewer colours automatically.
@@ -62,7 +64,7 @@ on a machine with no GPU.
 ## Quick start
 
 ```bash
-llmtop                        # monitor this machine: auto-detected GPUs + llama.cpp/vLLM/NInfer servers
+llmtop                        # monitor this machine: auto-detected GPUs + llama.cpp/vLLM/NInfer/Strata servers
 llmtop --connect host:9832    # also watch one remote llmtop agent, ad hoc
 llmtop version                # print the version (also: llmtop --version)
 ```
@@ -199,7 +201,7 @@ gpus  = [1, 0]           # optional: show only these GPU indices, in this order
 
   [[hosts.llm_endpoints]] # optional static additions for this (local) host
   url        = "http://127.0.0.1:8081"
-  kind       = "llama.cpp" # engine: "llama.cpp" (default), "vllm", "ninfer"
+  kind       = "llama.cpp" # engine: "llama.cpp" (default), "vllm", "ninfer", "strata"
   api_key    = "…"         # optional: sent as "Authorization: Bearer …"
   sleep_idle = true        # optional: this llama-server runs --sleep-idle-seconds
 
@@ -219,11 +221,11 @@ two. `llm_endpoints` lets you add LLM server URLs that process-scan discovery
 can't see (e.g. containerized servers whose cmdline isn't visible from `/proc`)
 — they only apply to `local` hosts, since they're read by whichever process runs
 the collector for that host. `kind` names the engine serving that URL so the
-right API is polled; it defaults to `llama.cpp`, so a vLLM or NInfer endpoint
+right API is polled; it defaults to `llama.cpp`, so a vLLM, NInfer or Strata endpoint
 must say so. For a remote host, declare its `llm_endpoints` in the agent's own
 config on that machine instead. An entry's optional `api_key` is sent as
 `Authorization: Bearer <api_key>` on every request to that URL — for a
-`llama-server` started with its own `--api-key` (the vLLM and NInfer adapters do
+`llama-server` or Strata server started with its own `--api-key` (the vLLM and NInfer adapters do
 not send it). If the URL also matches a process-scan discovery (same host and
 port), the key still applies: only the URL needs to be listed once, purely to
 carry the key.
@@ -303,14 +305,17 @@ titles every host that way. Set both to `false` for screenshots.
   utilization and memory history charts. The `(llm …)` part of each caption is
   the share attributed to LLM processes.
 - A GPU process counts as **LLM** if it is (or descends from) a discovered
-  llama.cpp, vLLM or NInfer server, or its name contains `llama-server`, `vllm`,
-  `sglang`, `ollama`, or `ninfer`. Everything else is graphics (compositor,
+  llama.cpp, vLLM, NInfer or Strata server, or its name contains `llama-server`, `vllm`,
+  `sglang`, `ollama`, or `ninfer`, or is exactly `strata` (case-insensitive).
+  Everything else is graphics (compositor,
   X/Wayland) or other compute.
 - `gen 42.3 t/s` is a measured generation rate. llama.cpp only advances its
   token counters when a request completes, so between completions the rate is
   amortised over the last request; while a request is in flight, `gen ~40 t/s`
   (with a tilde) is a live estimate derived from the decode counter. vLLM
   advances its counters every engine step, so its rate is live throughout.
+  Strata uses completed-request totals and a server-reported live estimate
+  during single-request generation (also marked with `~`).
 - A server can be `ok`, `loading` (process up, model not resident yet),
   `sleeping` (see below), or `unreachable`.
 
@@ -407,6 +412,33 @@ titles every host that way. Set both to `false` for screenshots.
   `--model-id`, the command line yields the container file's basename until
   `/v1/models` answers with the container's embedded model id.
 
+## Strata notes
+
+- **Discovery** recognises `python …/serve/server.py --engine strata` and
+  `python -m serve.server --engine strata`, including versioned Python binaries.
+  It parses `--host`/`--port` (default `127.0.0.1:8095`) under the same local-bind
+  rule as llama.cpp. When using `--config`, pass an explicit `--host` so discovery
+  can determine the actual bind address and place the server under its GPU.
+  Without it, discovery skips the process; declare the actual URL as a static
+  endpoint with `kind = "strata"` to show it in the host strip instead.
+  The native `strata --serve` child uses pipes; it is attributed to the HTTP
+  frontend's GPU panel, without adding a second server.
+- **What is read:** `/health` supplies model identity, context length and load
+  state. JSON `/metrics` supplies completed prompt/output token totals, active
+  and waiting requests, and effective parallel slots (one for the solo engine).
+  Prompt totals include cached tokens. The measured rates amortise completed
+  tokens across the observed request window. During solo generation, `gen ~N
+  t/s` uses Strata's rolling `live.tok_s` estimate. Parallel engines use aggregate
+  completion rates because that live estimate describes only the newest request.
+  KV-cache usage is unknown; context fill is not cache occupancy.
+- **Idle unload:** `loaded: false` (or metrics state `unloaded`) shows as
+  `sleeping` and clears rate history. Polling these endpoints does not load
+  the model or reset the idle-unload timer. A connection failure is
+  `unreachable`; HTTP 503 is `loading`.
+- **`--api-key`:** health remains readable. Configure `api_key` on a matching
+  `llm_endpoints` entry to read protected metrics; otherwise the panel shows
+  `metrics: http 401` while retaining model identity and load state.
+
 ## Agent security
 
 `llmtop agent` serves read-only JSON telemetry over plain HTTP — no TLS. It is
@@ -417,7 +449,7 @@ Be aware of the defaults: `listen = ":9832"` binds **every interface**, and with
 no token configured the API is **unauthenticated** — anyone who can reach the
 port can read the host's hostname, driver version, GPU models and UUIDs, the PID
 and name of every process using a GPU, and the endpoints and model names of your
-llama.cpp, vLLM and NInfer servers. The agent prints a warning at startup in
+llama.cpp, vLLM, NInfer and Strata servers. The agent prints a warning at startup in
 that configuration.
 
 What to do about it: if only this machine needs the data, bind loopback

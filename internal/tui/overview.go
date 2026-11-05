@@ -353,6 +353,8 @@ func compactMetricsHint(srv *model.LLMServer) string {
 	switch srv.Kind {
 	case "vllm":
 		return "(stats off)"
+	case "strata":
+		return "(metrics unavailable)"
 	case "ninfer":
 		var parts []string
 		if srv.CtxSize > 0 {

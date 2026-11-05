@@ -216,6 +216,8 @@ func metricsOffHint(srv *model.LLMServer) string {
 	switch srv.Kind {
 	case "vllm":
 		return "metrics disabled — start vllm without --disable-log-stats"
+	case "strata":
+		return "metrics unavailable — check Strata's /metrics endpoint"
 	case "ninfer":
 		var parts []string
 		if srv.CtxSize > 0 {

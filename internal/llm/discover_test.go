@@ -70,6 +70,7 @@ func TestDiscoverStaticKindSelectsAdapter(t *testing.T) {
 		{URL: "http://127.0.0.1:8002", Kind: KindLlamaCpp},
 		{URL: "http://127.0.0.1:8003"},
 		{URL: "http://127.0.0.1:8004", Kind: "nope"},
+		{URL: "http://127.0.0.1:8005", Kind: KindStrata},
 	}
 	got := Discover(nil, Adapters(), static)
 	want := map[string]string{
@@ -77,6 +78,7 @@ func TestDiscoverStaticKindSelectsAdapter(t *testing.T) {
 		"http://127.0.0.1:8001": ninferKind,
 		"http://127.0.0.1:8002": llamaKind,
 		"http://127.0.0.1:8003": llamaKind,
+		"http://127.0.0.1:8005": strataKind,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("len = %d, want %d (unknown kind must be dropped): %+v", len(got), len(want), got)
@@ -138,5 +140,26 @@ func TestDiscoverScanCollisionDeterministic(t *testing.T) {
 		if got[0].PID != 300 {
 			t.Fatalf("iter %d: PID = %d, want 300 (smaller PID must win)", i, got[0].PID)
 		}
+	}
+}
+
+func TestDiscoverStrataConfigHostDoesNotCreatePhantomServer(t *testing.T) {
+	// A saved config can bind ::1. Without an explicit --host, guessing
+	// 127.0.0.1 would create a second server and steal the GPU attribution.
+	table := map[int32]procs.ProcInfo{
+		100: {PID: 100, Comm: "python", Cmdline: []string{"python", "serve/server.py", "--engine", "strata", "--config", "/models/strata.json", "--port", "9000"}},
+		101: {PID: 101, PPID: 100, Comm: "strata", Cmdline: []string{"strata", "--serve"}},
+	}
+	static := []StaticEndpoint{{URL: "http://[::1]:9000", Kind: KindStrata}}
+	got := Discover(table, Adapters(), static)
+	if len(got) != 1 || got[0].Endpoint != static[0].URL || got[0].PID != 0 {
+		t.Fatalf("config-only host must leave exactly the declared server: %+v", got)
+	}
+	info := table[100]
+	info.Cmdline = append(info.Cmdline, "--host", "::1")
+	table[100] = info
+	got = Discover(table, Adapters(), static)
+	if len(got) != 1 || got[0].Endpoint != static[0].URL || got[0].PID != 100 {
+		t.Fatalf("explicit host must restore discovery and PID/GPU attribution: %+v", got)
 	}
 }

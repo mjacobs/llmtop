@@ -935,7 +935,7 @@ func TestHideAddressesScrubsDisplayFields(t *testing.T) {
 // server. Like known statuses and the router role, they must retain their
 // meaning even when they match a host name or the text budget is spent.
 func TestHideAddressesPreservesEngineHints(t *testing.T) {
-	for _, kind := range []string{"llama.cpp", "vllm", "ninfer"} {
+	for _, kind := range []string{"llama.cpp", "vllm", "ninfer", "strata"} {
 		for _, exhausted := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/exhausted=%v", kind, exhausted), func(t *testing.T) {
 				s := viewSnapshot(sampleTS)

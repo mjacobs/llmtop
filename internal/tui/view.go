@@ -105,7 +105,7 @@ func (v hostView) filterSnapshot(s *model.Snapshot) *model.Snapshot {
 			srv.Endpoint = redactEndpoint(srv.Endpoint)
 			srv.Model = sc.text(srv.Model)
 			switch srv.Kind {
-			case "llama.cpp", "vllm", "ninfer":
+			case "llama.cpp", "vllm", "ninfer", "strata":
 				// Known engine identifiers select metrics advice. Keep
 				// their meaning, like known statuses and the router role;
 				// only free-form kinds can contain an address.

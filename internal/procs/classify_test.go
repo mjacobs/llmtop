@@ -18,6 +18,10 @@ func TestClassify(t *testing.T) {
 		600: {PID: 600, PPID: 1, Comm: "python3"},
 		601: {PID: 601, PPID: 600, Comm: "VLLM::EngineCore"},
 		700: {PID: 700, PPID: 1, Comm: "ninfer-serve"},
+		800: {PID: 800, PPID: 1, Comm: "strata"},
+		810: {PID: 810, PPID: 1, Comm: "Strata"},
+		900: {PID: 900, PPID: 1, Comm: "stratagus"},
+		901: {PID: 901, PPID: 900, Comm: "graphics-worker"},
 	}
 	llmPIDs := map[int32]bool{100: true}
 
@@ -36,6 +40,10 @@ func TestClassify(t *testing.T) {
 		{500, false, model.ProcOther},   // ppid cycle must terminate
 		{601, false, model.ProcLLM},     // VLLM::EngineCore matches "vllm" case-insensitively
 		{700, false, model.ProcLLM},     // ninfer-serve holds its own VRAM
+		{800, false, model.ProcLLM},     // Strata with a config-only bind is still LLM compute
+		{810, false, model.ProcLLM},     // engine name matching stays case-insensitive
+		{900, true, model.ProcGraphics}, // unrelated name containing strata
+		{901, false, model.ProcOther},   // unrelated ancestor must not make its child LLM
 	}
 	for _, c := range cases {
 		if got := Classify(c.pid, table, llmPIDs, c.graphics); got != c.want {

@@ -23,7 +23,7 @@ func EndpointFromCmdline(argv []string) (string, bool) {
 	if len(argv) == 0 || filepath.Base(argv[0]) != "llama-server" {
 		return "", false
 	}
-	host, port := overlayHostPort(argv, "127.0.0.1", "8080")
+	host, port := overlayHostPort(argv, "8080")
 	return httpBindEndpoint(host, port)
 }
 
@@ -40,7 +40,7 @@ func VLLMEndpointFromCmdline(argv []string) (string, bool) {
 	if argvHasFlag(argv, "--uds") {
 		return "", false
 	}
-	host, port := overlayHostPort(argv, "127.0.0.1", "8000")
+	host, port := overlayHostPort(argv, "8000")
 	return httpBindEndpoint(host, port)
 }
 
@@ -52,8 +52,59 @@ func NInferEndpointFromCmdline(argv []string) (string, bool) {
 	if len(argv) == 0 || filepath.Base(argv[0]) != "ninfer-serve" {
 		return "", false
 	}
-	host, port := overlayHostPort(argv, "127.0.0.1", "8080")
+	host, port := overlayHostPort(argv, "8080")
 	return httpBindEndpoint(host, port)
+}
+
+// StrataEndpointFromCmdline recognises Strata's Python HTTP frontend, not
+// the native `strata --serve` child (which speaks a pipe protocol, not HTTP).
+// Both `python .../serve/server.py` and `python -m serve.server` are supported.
+func StrataEndpointFromCmdline(argv []string) (string, bool) {
+	args, ok := strataServerArgs(argv)
+	if !ok || argvStringFlag(args, "--engine") != "strata" {
+		return "", false
+	}
+	// Strata resolves its host as CLI > JSON config > loopback. With a
+	// config and no explicit host we cannot know the bind address from
+	// argv; guessing would steal the PID/GPU placement from a correctly
+	// declared static endpoint. Do not read another process's config file.
+	if argvHasFlag(args, "--config") && argvStringFlag(args, "--host") == "" {
+		return "", false
+	}
+	host, port := overlayHostPort(args, "8095")
+	return httpBindEndpoint(host, port)
+}
+
+func strataServerArgs(argv []string) ([]string, bool) {
+	isScript := func(s string) bool {
+		return filepath.Base(s) == "server.py" && filepath.Base(filepath.Dir(s)) == "serve"
+	}
+	if len(argv) == 0 {
+		return nil, false
+	}
+	if isScript(argv[0]) {
+		return argv[1:], true
+	}
+	python := filepath.Base(argv[0])
+	if !strings.HasPrefix(python, "python") || strings.Trim(python[len("python"):], "0123456789.") != "" {
+		return nil, false
+	}
+	for i := 1; i < len(argv); i++ {
+		switch argv[i] {
+		case "-u", "-B", "-E", "-I", "-s", "-S", "-O", "-OO":
+			continue
+		case "-m":
+			if i+1 < len(argv) && argv[i+1] == "serve.server" {
+				return argv[i+2:], true
+			}
+		default:
+			if isScript(argv[i]) {
+				return argv[i+1:], true
+			}
+		}
+		return nil, false
+	}
+	return nil, false
 }
 
 func isVLLMServe(argv []string) bool {
@@ -77,7 +128,8 @@ func argvHasFlag(argv []string, name string) bool {
 	return false
 }
 
-func overlayHostPort(argv []string, host, port string) (string, string) {
+func overlayHostPort(argv []string, port string) (string, string) {
+	host := "127.0.0.1"
 	for i := 0; i < len(argv); i++ {
 		switch {
 		case argv[i] == "--host" || strings.HasPrefix(argv[i], "--host="):

@@ -61,7 +61,7 @@ const (
 )
 
 type LLMServer struct {
-	Kind     string `json:"kind"`     // adapter name: "llama.cpp" | "vllm" | "ninfer"
+	Kind     string `json:"kind"`     // adapter name: "llama.cpp" | "vllm" | "ninfer" | "strata"
 	Endpoint string `json:"endpoint"` // http://host:port
 	PID      int32  `json:"pid,omitempty"`
 	// GPUs lists the indices of the GPUs held by the server's process tree —
@@ -92,8 +92,9 @@ type LLMMetrics struct {
 	KVCacheUsage         float64 `json:"kv_cache_usage"` // 0..1; -1 = unknown (metric absent in this build)
 	RequestsProcessing   int     `json:"requests_processing"`
 	RequestsDeferred     int     `json:"requests_deferred"`
-	// PredictedTPSEst is true when PredictedTPS is a decode-derived
-	// in-flight estimate rather than a completion-window measurement.
+	// PredictedTPSEst is true when PredictedTPS is a live decode estimate
+	// (derived from a counter or reported by the server) rather than a
+	// completion-window measurement.
 	PredictedTPSEst bool `json:"predicted_tps_est,omitempty"`
 }
 

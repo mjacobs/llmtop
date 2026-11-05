@@ -20,7 +20,7 @@ import (
 type LLMEndpoint struct {
 	URL string `toml:"url"`
 	// Kind names the engine serving this URL ("llama.cpp", "vllm",
-	// "ninfer"); it picks the adapter that queries it. Empty means
+	// "ninfer", "strata"); it picks the adapter that queries it. Empty means
 	// llama.cpp.
 	Kind string `toml:"kind"`
 	// APIKey, when set, is sent as "Authorization: Bearer <APIKey>" on

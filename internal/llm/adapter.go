@@ -22,6 +22,7 @@ const (
 	KindLlamaCpp = llamaKind
 	KindVLLM     = vllmKind
 	KindNInfer   = ninferKind
+	KindStrata   = strataKind
 )
 
 // Kinds lists the engine kinds Adapters covers, in adapter order. Config
@@ -36,7 +37,7 @@ func Kinds() []string {
 }
 
 func Adapters() []Adapter {
-	return []Adapter{NewLlamaCpp(), NewVLLM(), NewNInfer()}
+	return []Adapter{NewLlamaCpp(), NewVLLM(), NewNInfer(), NewStrata()}
 }
 
 // FetchHint carries collector-side observations the adapter cannot see from
@@ -46,7 +47,7 @@ func Adapters() []Adapter {
 // /metrics scrape as activity, so unconditional polling keeps the model
 // resident forever). APIKey, when non-empty, is sent as
 // "Authorization: Bearer <APIKey>" on every request to this endpoint, for a
-// server started with llama-server's own --api-key.
+// server started with llama-server's or Strata's own --api-key.
 type FetchHint struct {
 	GPUActive bool
 	APIKey    string

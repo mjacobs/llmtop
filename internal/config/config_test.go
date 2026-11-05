@@ -217,12 +217,13 @@ func TestLLMEndpointKind(t *testing.T) {
 	body := "[[hosts]]\nname=\"x\"\nlocal=true\n" +
 		"[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8000\"\nkind=\"vllm\"\n" +
 		"[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8001\"\nkind=\"ninfer\"\n" +
+		"[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8003\"\nkind=\"strata\"\n" +
 		"[[hosts.llm_endpoints]]\nurl=\"http://127.0.0.1:8002\"\n"
 	cfg, err := Load(write(t, body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"vllm", "ninfer", ""}
+	want := []string{"vllm", "ninfer", "strata", ""}
 	eps := cfg.Hosts[0].LLMEndpoints
 	if len(eps) != len(want) {
 		t.Fatalf("llm_endpoints = %+v", eps)

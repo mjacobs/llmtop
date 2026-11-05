@@ -73,6 +73,7 @@ func TestServerLineMetricsHintIsEngineAware(t *testing.T) {
 	}{
 		{name: "llama.cpp", srv: model.LLMServer{Kind: "llama.cpp"}, want: "(--metrics off)"},
 		{name: "vllm", srv: model.LLMServer{Kind: "vllm"}, want: "(stats off)", notWant: "--metrics"},
+		{name: "strata", srv: model.LLMServer{Kind: "strata"}, want: "(metrics unavailable)", notWant: "--metrics"},
 		{
 			name:    "ninfer with facts",
 			srv:     model.LLMServer{Kind: "ninfer", CtxSize: 8192, SlotsTotal: 4},
