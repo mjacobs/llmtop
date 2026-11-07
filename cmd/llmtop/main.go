@@ -2,9 +2,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -43,34 +46,124 @@ func versionString() string {
 }
 
 func main() {
-	args := os.Args[1:]
+	os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
+}
+
+// run owns process output and translates parsing/runtime errors to exit codes.
+func run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	cmd, err := parseCommand(args, getenv)
+	if err != nil {
+		var fe *flagError
+		if errors.As(err, &fe) {
+			fmt.Fprint(stderr, fe.output) //nolint:errcheck // process output
+			return fe.code
+		}
+		fmt.Fprintln(stderr, err) //nolint:errcheck // process output
+		return 1
+	}
+	switch cmd.name {
+	case "version":
+		fmt.Fprintln(stdout, "llmtop", versionString()) //nolint:errcheck // process output
+	case "help":
+		fmt.Fprint(stdout, cmd.help) //nolint:errcheck // process output
+	case "agent":
+		err = runAgent(cmd.cfg)
+	default:
+		err = tui.Run(cmd.cfg, cmd.connects, cmd.demo, versionString())
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", cmd.prefix(), err) //nolint:errcheck // process output
+		return 1
+	}
+	return 0
+}
+
+type command struct {
+	name     string
+	cfg      config.Config
+	demo     bool
+	connects []string
+	help     string
+}
+
+func (c command) prefix() string {
+	if c.name == "tui" {
+		return "llmtop"
+	}
+	return "llmtop " + c.name
+}
+
+// parseCommand resolves dispatch, flags and configuration without starting any
+// telemetry or terminal runtime. getenv supplies the agent's token environment.
+func parseCommand(args []string, getenv func(string) string) (cmd command, err error) {
+	cmd.name = "tui"
 	if len(args) > 0 {
 		switch args[0] {
-		case "agent":
-			if err := runAgent(args[1:]); err != nil {
-				fmt.Fprintln(os.Stderr, "llmtop agent:", err)
-				os.Exit(1)
-			}
-			return
-		case "version", "help":
-			if len(args) > 1 {
-				fmt.Fprintf(os.Stderr, "llmtop %s: unexpected argument %q\n", args[0], args[1])
-				os.Exit(1)
-			}
-			if args[0] == "version" {
-				fmt.Println("llmtop", versionString())
-				return
-			}
-			fs, _ := tuiFlags()
-			fs.SetOutput(os.Stdout)
-			fs.Usage()
-			return
+		case "agent", "version", "help":
+			cmd.name = args[0]
+			args = args[1:]
 		}
 	}
-	if err := runTUI(args); err != nil {
-		fmt.Fprintln(os.Stderr, "llmtop:", err)
-		os.Exit(1)
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("%s: %w", cmd.prefix(), err)
+		}
+	}()
+	switch cmd.name {
+	case "agent":
+		cmd.cfg, err = agentConfig(args, getenv)
+		return cmd, err
+	case "version", "help":
+		if len(args) > 0 {
+			return cmd, fmt.Errorf("unexpected argument %q", args[0])
+		}
+		if cmd.name == "help" {
+			fs, _ := tuiFlags()
+			var out bytes.Buffer
+			fs.SetOutput(&out)
+			fs.Usage()
+			cmd.help = out.String()
+		}
+		return cmd, nil
 	}
+	fs, o := tuiFlags()
+	if err := parseFlags(fs, args); err != nil {
+		return cmd, err
+	}
+	if fs.NArg() > 0 {
+		return cmd, fmt.Errorf("unexpected argument %q (try: llmtop -h)", fs.Arg(0))
+	}
+	if o.version {
+		cmd.name = "version"
+		return cmd, nil
+	}
+	cmd.cfg, err = loadConfig(fs, o.cfgPath)
+	cmd.demo, cmd.connects = o.demo, o.connects
+	return cmd, err
+}
+
+// flagError retains flag's diagnostic output and exit status: help is 0,
+// malformed flags are 2. Resolution and positional-argument errors use 1.
+type flagError struct {
+	err    error
+	output string
+	code   int
+}
+
+func (e *flagError) Error() string { return e.err.Error() }
+func (e *flagError) Unwrap() error { return e.err }
+
+func parseFlags(fs *flag.FlagSet, args []string) error {
+	var out bytes.Buffer
+	fs.SetOutput(&out)
+	if err := fs.Parse(args); err != nil {
+		code := 2
+		if errors.Is(err, flag.ErrHelp) {
+			code = 0
+		}
+		return &flagError{err: err, output: out.String(), code: code}
+	}
+	return nil
 }
 
 const rootUsage = `Usage:
@@ -94,11 +187,11 @@ type tuiOpts struct {
 	connects multiFlag
 }
 
-// tuiFlags builds the root FlagSet. It is shared by runTUI and the
+// tuiFlags builds the root FlagSet. It is shared by parseCommand and the
 // `help` subcommand so both print the same usage.
 func tuiFlags() (*flag.FlagSet, *tuiOpts) {
 	var o tuiOpts
-	fs := flag.NewFlagSet("llmtop", flag.ExitOnError)
+	fs := flag.NewFlagSet("llmtop", flag.ContinueOnError)
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), rootUsage) //nolint:errcheck // usage text; nothing to do on failure
 		fs.PrintDefaults()
@@ -108,25 +201,6 @@ func tuiFlags() (*flag.FlagSet, *tuiOpts) {
 	fs.BoolVar(&o.version, "version", false, "print the version and exit")
 	fs.Var(&o.connects, "connect", "agent address host:port (repeatable)")
 	return fs, &o
-}
-
-func runTUI(args []string) error {
-	fs, o := tuiFlags()
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected argument %q (try: llmtop -h)", fs.Arg(0))
-	}
-	if o.version {
-		fmt.Println("llmtop", versionString())
-		return nil
-	}
-	cfg, err := loadConfig(fs, o.cfgPath)
-	if err != nil {
-		return err
-	}
-	return tui.Run(cfg, o.connects, o.demo, versionString())
 }
 
 type multiFlag []string
@@ -155,8 +229,8 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 	return set
 }
 
-func runAgent(args []string) error {
-	fs := flag.NewFlagSet("llmtop agent", flag.ExitOnError)
+func agentConfig(args []string, getenv func(string) string) (config.Config, error) {
+	fs := flag.NewFlagSet("llmtop agent", flag.ContinueOnError)
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), agentUsage) //nolint:errcheck // usage text; nothing to do on failure
 		fs.PrintDefaults()
@@ -164,15 +238,15 @@ func runAgent(args []string) error {
 	cfgPath := fs.String("config", config.DefaultPath(), "config file path")
 	listen := fs.String("listen", "", "listen address (overrides config)")
 	token := fs.String("token", "", "bearer token (overrides LLMTOP_TOKEN and config)")
-	if err := fs.Parse(args); err != nil {
-		return err
+	if err := parseFlags(fs, args); err != nil {
+		return config.Config{}, err
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected argument %q (try: llmtop agent -h)", fs.Arg(0))
+		return config.Config{}, fmt.Errorf("unexpected argument %q (try: llmtop agent -h)", fs.Arg(0))
 	}
 	cfg, err := loadConfig(fs, *cfgPath)
 	if err != nil {
-		return err
+		return config.Config{}, err
 	}
 	if *listen != "" {
 		cfg.Agent.Listen = *listen
@@ -181,9 +255,13 @@ func runAgent(args []string) error {
 	// auth off) > LLMTOP_TOKEN > config file.
 	if flagWasSet(fs, "token") {
 		cfg.Agent.Token = *token
-	} else if t := os.Getenv("LLMTOP_TOKEN"); t != "" {
+	} else if t := getenv("LLMTOP_TOKEN"); t != "" {
 		cfg.Agent.Token = t
 	}
+	return cfg, nil
+}
+
+func runAgent(cfg config.Config) error {
 	var static []llm.StaticEndpoint
 	for _, h := range cfg.Hosts {
 		if h.Local {
