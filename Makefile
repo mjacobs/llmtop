@@ -28,6 +28,7 @@ LDFLAGS := -X main.version=$$VERSION
 # Passthrough knobs: `make run ARGS=--demo`, `make test GOFLAGS=-count=1`.
 GOFLAGS ?=
 ARGS    ?=
+FUZZTIME ?= 30s
 
 .DEFAULT_GOAL := help
 
@@ -56,6 +57,12 @@ run: build ## Build then run (args via ARGS=..., e.g. make run ARGS=--demo)
 .PHONY: test
 test: ## Run the unit tests
 	go test $(GOFLAGS) ./...
+
+.PHONY: fuzz
+fuzz: ## Fuzz outside-input parsers (FUZZTIME=30s per target, two workers)
+	go test $(GOFLAGS) ./internal/llm -run='^$$' -fuzz='^FuzzParsePromSamples$$' -fuzztime=$(FUZZTIME) -parallel=2
+	go test $(GOFLAGS) ./internal/llm -run='^$$' -fuzz='^FuzzEndpointFromCmdline$$' -fuzztime=$(FUZZTIME) -parallel=2
+	go test $(GOFLAGS) ./internal/procs -run='^$$' -fuzz='^FuzzParseStat$$' -fuzztime=$(FUZZTIME) -parallel=2
 
 .PHONY: test-race
 test-race: ## Run the unit tests with the race detector

@@ -48,14 +48,16 @@ func TestParsePromText(t *testing.T) {
 	}
 }
 
-func TestParsePromTextLabeled(t *testing.T) {
-	body := []byte(`# HELP vllm:prompt_tokens_total Number of prefill tokens processed.
+const promLabeledFixture = `# HELP vllm:prompt_tokens_total Number of prefill tokens processed.
 vllm:prompt_tokens_total{engine="0",model_name="qwen"} 10.0
 vllm:prompt_tokens_total{engine="1",model_name="qwen"} 15.0
 vllm:kv_cache_usage_perc{engine="0",model_name="qwen"} 0.25
 vllm:kv_cache_usage_perc{engine="1",model_name="qwen"} 0.75
 vllm:engine_sleep_state{engine="0",sleep_state="awake"} 1.0
-`)
+`
+
+func TestParsePromTextLabeled(t *testing.T) {
+	body := []byte(promLabeledFixture)
 	m := ParsePromText(body)
 	if m["vllm:prompt_tokens_total"] != 25 {
 		t.Errorf("summed prompt tokens = %v, want 25", m["vllm:prompt_tokens_total"])

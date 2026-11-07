@@ -90,7 +90,7 @@ data that crosses a version boundary.
 | Every change | `make check`: gofmt, `go vet`, golangci-lint, `go test ./...` (includes fuzz seed corpora) | local and CI, Go 1.26 floor and stable |
 | Every change | `make check-nocgo`: build and test without cgo | CI |
 | Every change (to add) | `go test -race ./...` | CI |
-| After touching a parser or renderer (to add) | `make fuzz` with a short budget per target | local |
+| After touching an outside-input parser | `make fuzz` (30 s per target; override with `FUZZTIME=60s`, two workers) | local |
 | Before a release | `make test-nvml`; the `--demo` tmux smoke test; the live engine check for each engine available; review any golden file diff | a host with an NVIDIA GPU |
 
 ## State on 2026-11-06

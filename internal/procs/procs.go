@@ -67,11 +67,13 @@ func parseStat(stat []byte) (comm string, ppid int32, ok bool) {
 	s := string(stat)
 	open := strings.IndexByte(s, '(')
 	close := strings.LastIndexByte(s, ')')
-	if open < 0 || close < open || close+2 >= len(s) {
+	if open < 0 || close < open {
 		return "", 0, false
 	}
 	comm = s[open+1 : close]
-	rest := strings.Fields(s[close+2:]) // rest[0]=state, rest[1]=ppid
+	// Split immediately after ')' rather than skipping an assumed space:
+	// malformed input without that space must not shift the ppid field.
+	rest := strings.Fields(s[close+1:]) // rest[0]=state, rest[1]=ppid
 	if len(rest) < 2 {
 		return "", 0, false
 	}

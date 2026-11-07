@@ -18,33 +18,35 @@ func strataMetricsJSON(prompt, output int, live string) string {
 	return fmt.Sprintf(`{"engine":{"model":"qwen-demo","max_context":32768},"live":%s,"totals":{"prompt_tokens":%d,"output_tokens":%d}}`, live, prompt, output)
 }
 
+var strataEndpointCmdlineCases = []struct {
+	name string
+	argv []string
+	want string
+}{
+	{"release script", []string{"/opt/strata/.venv/bin/python", "/opt/strata/serve/server.py", "--engine", "strata", "--host", "127.0.0.1", "--port", "8003"}, "http://127.0.0.1:8003"},
+	{"module defaults", []string{"python3.12", "-u", "-m", "serve.server", "--engine=strata"}, "http://127.0.0.1:8095"},
+	{"wildcard", []string{"python", "serve/server.py", "--engine", "strata", "--host=0.0.0.0", "--port=9000"}, "http://127.0.0.1:9000"},
+	{"IPv6", []string{"python", "serve/server.py", "--engine=strata", "--host=::1"}, "http://[::1]:8095"},
+	{"direct script", []string{"./serve/server.py", "--engine=strata"}, "http://127.0.0.1:8095"},
+	{"config needs explicit host", []string{"python", "serve/server.py", "--engine=strata", "--config=/models/strata.json"}, ""},
+	{"empty host uses config", []string{"python", "serve/server.py", "--engine=strata", "--config=/models/strata.json", "--host="}, ""},
+	{"config with CLI host", []string{"python", "serve/server.py", "--engine=strata", "--config=/models/strata.json", "--host=::1", "--port=8003"}, "http://[::1]:8003"},
+	{"native pipe engine", []string{"/opt/strata/bin/strata", "--serve", "--port", "8003"}, ""},
+	{"mock", []string{"python", "-m", "serve.server", "--engine=mock"}, ""},
+	{"default mock", []string{"python", "-m", "serve.server"}, ""},
+	{"unrelated script", []string{"python", "other/server.py", "--engine=strata"}, ""},
+	{"argument is not entrypoint", []string{"python", "unrelated.py", "serve/server.py", "--engine=strata"}, ""},
+	{"code is not entrypoint", []string{"python", "-c", "serve/server.py", "--engine=strata"}, ""},
+	{"non-python", []string{"echo", "serve/server.py", "--engine=strata"}, ""},
+	{"foreign host", []string{"python", "serve/server.py", "--engine=strata", "--host=192.0.2.99"}, ""},
+	{"hostname rejected", []string{"python", "serve/server.py", "--engine=strata", "--host=example.com"}, ""},
+	{"URL injection", []string{"python", "serve/server.py", "--engine=strata", "--host=localhost/path"}, ""},
+	{"bad port", []string{"python", "serve/server.py", "--engine=strata", "--port=0"}, ""},
+	{"empty", nil, ""},
+}
+
 func TestStrataEndpointFromCmdline(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		argv []string
-		want string
-	}{
-		{"release script", []string{"/opt/strata/.venv/bin/python", "/opt/strata/serve/server.py", "--engine", "strata", "--host", "127.0.0.1", "--port", "8003"}, "http://127.0.0.1:8003"},
-		{"module defaults", []string{"python3.12", "-u", "-m", "serve.server", "--engine=strata"}, "http://127.0.0.1:8095"},
-		{"wildcard", []string{"python", "serve/server.py", "--engine", "strata", "--host=0.0.0.0", "--port=9000"}, "http://127.0.0.1:9000"},
-		{"IPv6", []string{"python", "serve/server.py", "--engine=strata", "--host=::1"}, "http://[::1]:8095"},
-		{"direct script", []string{"./serve/server.py", "--engine=strata"}, "http://127.0.0.1:8095"},
-		{"config needs explicit host", []string{"python", "serve/server.py", "--engine=strata", "--config=/models/strata.json"}, ""},
-		{"empty host uses config", []string{"python", "serve/server.py", "--engine=strata", "--config=/models/strata.json", "--host="}, ""},
-		{"config with CLI host", []string{"python", "serve/server.py", "--engine=strata", "--config=/models/strata.json", "--host=::1", "--port=8003"}, "http://[::1]:8003"},
-		{"native pipe engine", []string{"/opt/strata/bin/strata", "--serve", "--port", "8003"}, ""},
-		{"mock", []string{"python", "-m", "serve.server", "--engine=mock"}, ""},
-		{"default mock", []string{"python", "-m", "serve.server"}, ""},
-		{"unrelated script", []string{"python", "other/server.py", "--engine=strata"}, ""},
-		{"argument is not entrypoint", []string{"python", "unrelated.py", "serve/server.py", "--engine=strata"}, ""},
-		{"code is not entrypoint", []string{"python", "-c", "serve/server.py", "--engine=strata"}, ""},
-		{"non-python", []string{"echo", "serve/server.py", "--engine=strata"}, ""},
-		{"foreign host", []string{"python", "serve/server.py", "--engine=strata", "--host=192.0.2.99"}, ""},
-		{"hostname rejected", []string{"python", "serve/server.py", "--engine=strata", "--host=example.com"}, ""},
-		{"URL injection", []string{"python", "serve/server.py", "--engine=strata", "--host=localhost/path"}, ""},
-		{"bad port", []string{"python", "serve/server.py", "--engine=strata", "--port=0"}, ""},
-		{"empty", nil, ""},
-	} {
+	for _, tc := range strataEndpointCmdlineCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ep, ok := StrataEndpointFromCmdline(tc.argv)
 			if ep != tc.want || ok != (tc.want != "") {
