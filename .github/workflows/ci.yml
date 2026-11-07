@@ -34,5 +34,8 @@ jobs:
       - name: fmt-check, vet, lint, test
         run: make check
 
+      - name: test with race detector
+        run: make test-race
+
       - name: build and test without cgo
         run: make check-nocgo

@@ -57,6 +57,10 @@ run: build ## Build then run (args via ARGS=..., e.g. make run ARGS=--demo)
 test: ## Run the unit tests
 	go test $(GOFLAGS) ./...
 
+.PHONY: test-race
+test-race: ## Run the unit tests with the race detector
+	go test $(GOFLAGS) -race ./...
+
 .PHONY: test-nvml
 test-nvml: ## Run the env-gated NVML hardware smoke test (needs a real GPU)
 	LLMTOP_NVML_TEST=1 go test $(GOFLAGS) ./internal/gpu/ -run NVML -v
