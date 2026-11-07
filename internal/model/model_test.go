@@ -2,6 +2,8 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -114,5 +116,29 @@ func TestSanitizeLeavesCleanSnapshotUntouched(t *testing.T) {
 	got.Sanitize()
 	if !reflect.DeepEqual(in, got) {
 		t.Fatalf("Sanitize changed a clean snapshot:\nin:  %+v\nout: %+v", in, got)
+	}
+}
+
+func TestSnapshotSanitizeNonFiniteMetrics(t *testing.T) {
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		t.Run(fmt.Sprint(value), func(t *testing.T) {
+			s := Snapshot{Servers: []LLMServer{
+				{Metrics: &LLMMetrics{
+					PromptTokensTotal: value, PredictedTokensTotal: value,
+					PromptTPS: value, PredictedTPS: value, KVCacheUsage: value,
+					RequestsProcessing: 2, RequestsDeferred: 3, PredictedTPSEst: true,
+				}},
+				{}, // Missing metrics stay missing.
+			}}
+			s.Sanitize()
+			want := &LLMMetrics{KVCacheUsage: -1, RequestsProcessing: 2,
+				RequestsDeferred: 3, PredictedTPSEst: true}
+			if !reflect.DeepEqual(s.Servers[0].Metrics, want) || s.Servers[1].Metrics != nil {
+				t.Fatalf("sanitized metrics = %+v, want %+v", s.Servers[0].Metrics, want)
+			}
+			if _, err := json.Marshal(s); err != nil {
+				t.Fatalf("sanitized snapshot cannot be encoded: %v", err)
+			}
+		})
 	}
 }

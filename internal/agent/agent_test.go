@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -102,6 +103,46 @@ func TestHistoryCapsToNewest(t *testing.T) {
 	}
 	if last := hist[len(hist)-1]; !last.Timestamp.Equal(latest.Timestamp) {
 		t.Fatalf("last returned = %v, want latest sample = %v", last.Timestamp, latest.Timestamp)
+	}
+}
+
+func TestNonFiniteMetricReturnsEncodingError(t *testing.T) {
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		t.Run(fmt.Sprint(value), func(t *testing.T) {
+			s := New(nil, "")
+			s.ring.Push(model.Snapshot{
+				Timestamp: time.Unix(2000, 0),
+				Servers:   []model.LLMServer{{Metrics: &model.LLMMetrics{KVCacheUsage: value}}},
+			})
+			h := s.Handler()
+			check := func(path string, wantStatus int) []byte {
+				t.Helper()
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+				if w.Code != wantStatus {
+					t.Fatalf("%s: status = %d, want %d; body = %q", path, w.Code, wantStatus, w.Body.String())
+				}
+				if w.Body.Len() == 0 {
+					t.Fatalf("%s: empty response body", path)
+				}
+				return w.Body.Bytes()
+			}
+			check("/api/v1/snapshot", http.StatusInternalServerError)
+			check("/api/v1/history", http.StatusInternalServerError)
+
+			// A clean newest sample is readable even while history still
+			// contains the invalid sample (the original failure scenario).
+			s.ring.Push(model.Snapshot{Timestamp: time.Unix(2001, 0)})
+			var snap model.Snapshot
+			if err := json.Unmarshal(check("/api/v1/snapshot", http.StatusOK), &snap); err != nil {
+				t.Fatal(err)
+			}
+			check("/api/v1/history", http.StatusInternalServerError)
+			var hist []model.Snapshot
+			if err := json.Unmarshal(check("/api/v1/history?since=2000000", http.StatusOK), &hist); err != nil || len(hist) != 1 {
+				t.Fatalf("filtered history: %v, n=%d", err, len(hist))
+			}
+		})
 	}
 }
 

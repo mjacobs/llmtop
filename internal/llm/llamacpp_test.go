@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -86,6 +87,26 @@ func TestFetchWorkerWithMetrics(t *testing.T) {
 	s2 := a.Fetch(context.Background(), srv.URL, FetchHint{})
 	if s2.Metrics.PromptTPS != 100 || s2.Metrics.PredictedTPS != 50 {
 		t.Fatalf("delta TPS = %v/%v, want 100/50", s2.Metrics.PromptTPS, s2.Metrics.PredictedTPS)
+	}
+}
+
+func TestNonFiniteMetricSanitizedInSnapshot(t *testing.T) {
+	for _, value := range []string{"NaN", "+Inf", "-Inf"} {
+		t.Run(value, func(t *testing.T) {
+			body := metricsBody(100, 200) + "llamacpp:kv_cache_usage_ratio " + value + "\n"
+			srv := newFakeServer(t, workerProps, http.StatusOK, &body)
+			a := NewLlamaCpp()
+			snap := model.Snapshot{Servers: []model.LLMServer{a.Fetch(t.Context(), srv.URL, FetchHint{})}}
+			// Collectors sanitize adapter output before publishing it.
+			snap.Sanitize()
+			m := snap.Servers[0].Metrics
+			if m == nil || m.KVCacheUsage != -1 {
+				t.Fatalf("metrics = %+v, want unknown KV-cache usage", m)
+			}
+			if _, err := json.Marshal(snap); err != nil {
+				t.Fatalf("snapshot cannot be encoded: %v", err)
+			}
+		})
 	}
 }
 

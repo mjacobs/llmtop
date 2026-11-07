@@ -3,6 +3,7 @@
 package model
 
 import (
+	"math"
 	"strings"
 	"time"
 	"unicode"
@@ -125,7 +126,8 @@ func CleanString(s string) string {
 	}, s)
 }
 
-// Sanitize runs CleanString over every free-form string in the snapshot.
+// Sanitize cleans every free-form string and replaces non-finite metrics
+// with their missing-value defaults (zero counters/rates, -1 KV-cache usage).
 // Collectors call it before handing a snapshot on, and clients call it right
 // after decoding one from a remote agent, so downstream code (including map
 // keys derived from Endpoint) only ever sees clean values.
@@ -156,8 +158,22 @@ func (s *Snapshot) Sanitize() {
 		srv.Status = CleanString(srv.Status)
 		srv.Model = CleanString(srv.Model)
 		srv.MetricsErr = CleanString(srv.MetricsErr)
+		if m := srv.Metrics; m != nil {
+			m.PromptTokensTotal = finiteOr(m.PromptTokensTotal, 0)
+			m.PredictedTokensTotal = finiteOr(m.PredictedTokensTotal, 0)
+			m.PromptTPS = finiteOr(m.PromptTPS, 0)
+			m.PredictedTPS = finiteOr(m.PredictedTPS, 0)
+			m.KVCacheUsage = finiteOr(m.KVCacheUsage, -1)
+		}
 	}
 	for i := range s.Errors {
 		s.Errors[i] = CleanString(s.Errors[i])
 	}
+}
+
+func finiteOr(v, fallback float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fallback
+	}
+	return v
 }
