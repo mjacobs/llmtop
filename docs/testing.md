@@ -23,7 +23,7 @@ test should trace back to one of them.
 | The frame never exceeds the terminal | Overflow scrolls the alt screen and garbles the display | Fixed-size fit tests in `overview_test.go` and `app_test.go` |
 | Live data keeps flowing when one part fails | A dead GPU driver, a failed backfill or one unreachable server must not blank the host | Collector failure tests; client backfill-wedge test |
 | The agent rejects requests without the token | The agent exposes process and model telemetry | `internal/agent/agent_test.go` `TestAuth` |
-| An older agent and a newer TUI (or the reverse) still talk | Hosts are upgraded one at a time | Nothing pins the JSON field names (see the work plan) |
+| An older agent and a newer TUI (or the reverse) still talk | Hosts are upgraded one at a time | Snapshot JSON golden and frozen-release decoder tests in `internal/model/wire_test.go` |
 | Throughput numbers mean what the README says | llama.cpp counters move only at request completion | `internal/llm/rate_test.go` |
 
 ## Test layers
@@ -173,11 +173,12 @@ rough: S is under an hour, M is a few hours, L is a day or more.
    the height, every line at most the width, and each line counter matching
    its renderer. This is the test that would have caught the three height
    fixes.
-5. **Pin the wire format (S, before tagging v0.1.0).** A golden
+5. **Pin the wire format (done, before tagging v0.1.0).** A golden
    `internal/model/testdata/wire/snapshot.json`, regenerated only with
    `-update`, so renaming a JSON field shows up as a diff in review. At each
    release, freeze a copy as `v<version>.json` and keep a test that decodes
-   every frozen copy with the current types.
+   every frozen copy with the current types. See the
+   [release checklist](releases/README.md) for the freeze procedure.
 6. **Make `Sanitize` coverage automatic (S).** A reflection test that sets
    every string field in a `Snapshot` to a value with control characters,
    calls `Sanitize`, and fails if any control character survives. A new string
