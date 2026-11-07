@@ -8,7 +8,7 @@
   "timestamp": "2025-07-04T03:33:20Z",
   "gpus": [
     {
-      "index": 0,
+      "index": 1,
       "uuid": "GPU-abc",
       "name": "NVIDIA GeForce RTX 5090",
       "util_pct": 72,
@@ -26,7 +26,7 @@
     {
       "pid": 2310469,
       "name": "llama-server",
-      "gpu_index": 0,
+      "gpu_index": 1,
       "mem_bytes": 21474836480,
       "sm_util_pct": 65,
       "class": "llm"
@@ -37,6 +37,10 @@
       "kind": "llama.cpp",
       "endpoint": "http://127.0.0.1:33767",
       "pid": 2310469,
+      "gpus": [
+        1
+      ],
+      "role": "router",
       "status": "ok",
       "model": "qwen36-35b-mtp",
       "ctx_size": 262144,
@@ -48,8 +52,10 @@
         "predicted_tps": 42.3,
         "kv_cache_usage": -1,
         "requests_processing": 1,
-        "requests_deferred": 0
-      }
+        "requests_deferred": 2,
+        "predicted_tps_est": true
+      },
+      "metrics_err": "HTTP 401 Unauthorized"
     }
   ],
   "errors": [

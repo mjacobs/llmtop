@@ -13,8 +13,23 @@ import (
 
 var updateWire = flag.Bool("update", false, "regenerate testdata/wire/snapshot.json")
 
+// wireSample populates every current wire field, including optional fields.
+// Nonzero indexes and queue counts make lost keys observable after decoding.
+// Keep sample() unchanged for tests that rely on its original semantics.
+func wireSample() Snapshot {
+	s := sample()
+	s.GPUs[0].Index = 1
+	s.Procs[0].GPUIndex = 1
+	s.Servers[0].GPUs = []int{1}
+	s.Servers[0].Role = "router"
+	s.Servers[0].MetricsErr = "HTTP 401 Unauthorized"
+	s.Servers[0].Metrics.PredictedTPSEst = true
+	s.Servers[0].Metrics.RequestsDeferred = 2
+	return s
+}
+
 func TestSnapshotJSONGolden(t *testing.T) {
-	got, err := json.MarshalIndent(sample(), "", "  ")
+	got, err := json.MarshalIndent(wireSample(), "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,9 +98,10 @@ func testFrozenSnapshots(t *testing.T, dir string) {
 			if got.Servers[0].Metrics == nil {
 				t.Fatal("server metrics missing")
 			}
-			// Keep these expectations independent of sample() and JSON tags:
+			// Keep these expectations independent of wireSample() and JSON tags:
 			// encoding and decoding with the same renamed tag must not pass.
-			// Check stable key values, allowing future additive fields.
+			// Check every current field with nonzero values, allowing future
+			// additive fields. Extend this table and wireSample for new fields.
 			checks := []struct {
 				name      string
 				got, want any
@@ -95,24 +111,42 @@ func testFrozenSnapshots(t *testing.T, dir string) {
 				{"driver", got.Host.DriverVersion, "580.65"},
 				{"agent version", got.Host.AgentVersion, "0.1.0"},
 				{"timestamp", got.Timestamp, time.Unix(1751600000, 0).UTC()},
+				{"GPU index", got.GPUs[0].Index, 1},
 				{"GPU UUID", got.GPUs[0].UUID, "GPU-abc"},
+				{"GPU name", got.GPUs[0].Name, "NVIDIA GeForce RTX 5090"},
 				{"GPU utilization", got.GPUs[0].UtilPct, 72},
 				{"GPU memory", got.GPUs[0].MemUsed, uint64(24 << 30)},
+				{"GPU memory total", got.GPUs[0].MemTotal, uint64(32 << 30)},
+				{"GPU temperature", got.GPUs[0].TempC, 64},
+				{"GPU power", got.GPUs[0].PowerW, 412},
+				{"GPU power cap", got.GPUs[0].PowerCapW, 575},
+				{"GPU LLM memory", got.GPUs[0].LLMMemBytes, uint64(20 << 30)},
+				{"GPU other memory", got.GPUs[0].OtherMemBytes, uint64(4 << 30)},
+				{"GPU LLM utilization", got.GPUs[0].LLMUtilPct, 65},
 				{"process PID", got.Procs[0].PID, int32(2310469)},
 				{"process name", got.Procs[0].Name, "llama-server"},
 				{"process class", got.Procs[0].Class, ProcClass("llm")},
 				{"process memory", got.Procs[0].MemBytes, uint64(20 << 30)},
+				{"process GPU index", got.Procs[0].GPUIndex, 1},
+				{"process utilization", got.Procs[0].SMUtilPct, 65},
 				{"server kind", got.Servers[0].Kind, "llama.cpp"},
 				{"server endpoint", got.Servers[0].Endpoint, "http://127.0.0.1:33767"},
+				{"server PID", got.Servers[0].PID, int32(2310469)},
+				{"server GPUs", got.Servers[0].GPUs, []int{1}},
+				{"server role", got.Servers[0].Role, "router"},
 				{"server status", got.Servers[0].Status, "ok"},
 				{"server model", got.Servers[0].Model, "qwen36-35b-mtp"},
 				{"server context", got.Servers[0].CtxSize, 262144},
+				{"server slots", got.Servers[0].SlotsTotal, 1},
+				{"server metrics error", got.Servers[0].MetricsErr, "HTTP 401 Unauthorized"},
 				{"prompt tokens", got.Servers[0].Metrics.PromptTokensTotal, float64(16121)},
 				{"predicted tokens", got.Servers[0].Metrics.PredictedTokensTotal, float64(247195)},
 				{"prompt rate", got.Servers[0].Metrics.PromptTPS, 2754.78},
 				{"predicted rate", got.Servers[0].Metrics.PredictedTPS, 42.3},
 				{"KV cache", got.Servers[0].Metrics.KVCacheUsage, float64(-1)},
 				{"active requests", got.Servers[0].Metrics.RequestsProcessing, 1},
+				{"deferred requests", got.Servers[0].Metrics.RequestsDeferred, 2},
+				{"estimated rate", got.Servers[0].Metrics.PredictedTPSEst, true},
 				{"errors", got.Errors, []string{"gpu1: temp read failed"}},
 			}
 			for _, check := range checks {
