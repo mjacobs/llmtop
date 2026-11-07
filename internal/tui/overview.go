@@ -25,7 +25,18 @@ const sparkWidth = 12
 // GPU-panel index in render order; the selected panel gets the active border
 // (in COMPACT, its host panel does).
 func RenderOverview(hosts []*HostState, selected int, width, height int, pref LayoutPref, th Theme) string {
-	return clampHeight(renderOverview(hosts, selected, width, height, pref, th), height)
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	// The final frame must fit both terminal dimensions. In particular,
+	// borders and padding have a minimum width even when the terminal is
+	// narrower than a compact panel; clip those decorations at the boundary.
+	out := clampHeight(renderOverview(hosts, selected, width, height, pref, th), height)
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		lines[i] = truncateLine(line, width)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // clampHeight drops any lines beyond height. The solver sizes charts and
@@ -225,10 +236,25 @@ func renderCompact(hrs []hostRender, selectedHost, width int, th Theme) string {
 // truncateLine clips a (possibly ANSI-styled) line to width visual columns,
 // preserving escape codes rather than cutting through them.
 func truncateLine(s string, width int) string {
+	return truncateLineWithTail(s, width, "")
+}
+
+func truncateLineWithTail(s string, width int, tail string) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	return ansi.Truncate(s, width, "")
+	// Truncate and Width can count some graphemes differently, such as a
+	// keycap emoji that begins with an ASCII digit. Check the actual width
+	// and leave more room when the result would still overflow.
+	for budget := width; budget > 0; {
+		clipped := ansi.Truncate(s, budget, tail)
+		overshoot := lipgloss.Width(clipped) - width
+		if overshoot <= 0 {
+			return clipped
+		}
+		budget -= overshoot
+	}
+	return ""
 }
 
 // rightAlign clips a line to width and pads it to the right edge, so chart
@@ -255,9 +281,7 @@ func splitAlign(left, right string, width int) string {
 	if room <= 0 {
 		return rightAlign(right, width)
 	}
-	if lipgloss.Width(left) > room {
-		left = ansi.Truncate(left, room, "…")
-	}
+	left = truncateLineWithTail(left, room, "…")
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	return left + strings.Repeat(" ", gap) + right
 }

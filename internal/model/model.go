@@ -112,9 +112,10 @@ type Snapshot struct {
 // and U+007F..U+009F, so newlines, tabs and ESC included) removed. Strings
 // that reach the terminal come from untrusted places — another process's
 // argv, a server's /props, a remote agent — and must not be able to carry
-// escape sequences or line breaks into the display. Returns s itself when
-// there is nothing to remove.
+// escape sequences or line breaks into the display. Replace invalid UTF-8
+// so terminal width measurement and rendering see the same characters.
 func CleanString(s string) string {
+	s = strings.ToValidUTF8(s, "\uFFFD")
 	if strings.IndexFunc(s, unicode.IsControl) < 0 {
 		return s
 	}
