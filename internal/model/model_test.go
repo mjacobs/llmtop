@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 )
 
 func sample() Snapshot {
@@ -108,6 +109,52 @@ func TestSnapshotSanitize(t *testing.T) {
 	if b, _ := json.Marshal(s); strings.ContainsAny(string(b), "\x1b\n\r") {
 		t.Fatalf("control bytes survived Sanitize: %q", b)
 	}
+}
+
+func TestSnapshotSanitizeAllStrings(t *testing.T) {
+	const hostile = "alpha\x00\x1b[31m\r\n\t\x7f\u0085\u009b"
+	var s Snapshot
+
+	// Use the type's shape rather than a field list so new strings are covered
+	// automatically, including named string types and nested slices/pointers.
+	var walk func(reflect.Value, string, bool)
+	walk = func(v reflect.Value, path string, populate bool) {
+		switch v.Kind() {
+		case reflect.Struct:
+			for i := 0; i < v.NumField(); i++ {
+				field := v.Type().Field(i)
+				// Ignore private implementation details, e.g. inside time.Time.
+				if field.IsExported() {
+					walk(v.Field(i), path+"."+field.Name, populate)
+				}
+			}
+		case reflect.Pointer:
+			if populate {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			if !v.IsNil() {
+				walk(v.Elem(), path, populate)
+			}
+		case reflect.Slice, reflect.Array:
+			if populate && v.Kind() == reflect.Slice {
+				v.Set(reflect.MakeSlice(v.Type(), 1, 1))
+			}
+			for i := 0; i < v.Len(); i++ {
+				walk(v.Index(i), fmt.Sprintf("%s[%d]", path, i), populate)
+			}
+		case reflect.String:
+			if populate {
+				v.SetString(hostile)
+			} else if strings.IndexFunc(v.String(), unicode.IsControl) >= 0 {
+				t.Errorf("%s: control characters survived Sanitize: %q", path, v.String())
+			}
+		}
+	}
+
+	v := reflect.ValueOf(&s).Elem()
+	walk(v, "Snapshot", true)
+	s.Sanitize()
+	walk(v, "Snapshot", false)
 }
 
 func TestSanitizeLeavesCleanSnapshotUntouched(t *testing.T) {
