@@ -184,11 +184,13 @@ rough: S is under an hour, M is a few hours, L is a day or more.
    calls `Sanitize`, and fails if any control character survives. A new string
    field that nobody added to `Sanitize` then fails the gate instead of
    relying on review.
-7. **Replace real-time waits with `synctest` (M).** Give `StartRemote` an
-   unexported variant that takes an `*http.Client`, then test the backoff
-   schedule exactly (1 s, 2 s, 4 s … capped at 30 s), the fallback after three
-   failed backfills, and that the goroutine exits on cancel. Do the same for
-   `agent.RunSampling` and `client.StartLocal`. Removes the 7 s wait.
+7. **Replace real-time waits with `synctest` (done).** `StartRemote` delegates
+   to an unexported variant accepting an `*http.Client`; remote-loop tests
+   use in-process transports. Tests pin requests at 0, 1, 3, 7, 15, 31, 61
+   and 91 seconds, live fallback after three failed backfills, reconnect
+   history, and cancellation while waiting or sending. `agent.RunSampling`
+   and `client.StartLocal` tests pin immediate and periodic samples and
+   cancellation too. The former 7 s wait now uses only fake time.
 8. **Test the CLI (M).** Move flag handling out of `main` and `runAgent` into
    functions that take `args` and a `getenv` function and return a config or
    an error. Table-test subcommand dispatch, stray arguments, token precedence

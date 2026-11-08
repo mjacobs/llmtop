@@ -62,13 +62,18 @@ const (
 )
 
 func StartRemote(ctx context.Context, name, addr, token string, interval time.Duration, ch chan<- Update) {
+	startRemote(ctx, name, addr, token, interval, ch, &http.Client{Timeout: 5 * time.Second})
+}
+
+// startRemote accepts an HTTP client so tests can serve requests in process
+// without network I/O preventing synctest's clock from advancing.
+func startRemote(ctx context.Context, name, addr, token string, interval time.Duration, ch chan<- Update, hc *http.Client) {
 	base := addr
 	if !strings.Contains(base, "://") {
 		base = "http://" + base
 	}
 	base = strings.TrimRight(base, "/")
 	go func() {
-		hc := &http.Client{Timeout: 5 * time.Second}
 		backoff := backoffMin
 		lastSeen := int64(0)
 		needBackfill := true

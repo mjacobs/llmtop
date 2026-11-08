@@ -8,7 +8,9 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/mjacobs/llmtop/internal/collector"
@@ -16,6 +18,66 @@ import (
 	"github.com/mjacobs/llmtop/internal/model"
 	"github.com/mjacobs/llmtop/internal/procs"
 )
+
+func TestRunSampling(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		col := collector.New("alpha", gpu.NewFake(1), &procs.Fake{}, nil, nil, "test")
+		if err := col.Init(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(col.Close)
+		s := New(col, "")
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		start := time.Now()
+		go s.RunSampling(ctx, 5*time.Second)
+		for i := 0; i < 3; i++ {
+			if i > 0 {
+				time.Sleep(5 * time.Second)
+			}
+			synctest.Wait()
+			s.mu.RLock()
+			snaps := s.ring.Slice()
+			s.mu.RUnlock()
+			if len(snaps) != i+1 {
+				t.Fatalf("after %v: %d samples, want %d", time.Since(start), len(snaps), i+1)
+			}
+			for j, snap := range snaps {
+				want := start.Add(time.Duration(j) * 5 * time.Second)
+				if !snap.Timestamp.Equal(want) || snap.Host.Name != "alpha" || len(snap.GPUs) != 1 {
+					t.Fatalf("sample %d = %+v, want timestamp %v and collected GPU", j, snap, want)
+				}
+			}
+		}
+		cancel() // stop while waiting for the next tick
+		synctest.Wait()
+		time.Sleep(time.Hour)
+		s.mu.RLock()
+		count := len(s.ring.Slice())
+		s.mu.RUnlock()
+		if count != 3 {
+			t.Fatalf("samples after cancellation: %d, want 3", count)
+		}
+		// synctest.Test waits for RunSampling's goroutine to exit as well.
+	})
+}
+
+// An invalid numeric port exercises Run's listen failure without opening a
+// socket. Cancel its sampler too, so the bubble can wait for every goroutine.
+func TestRunListenError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		col := collector.New("alpha", gpu.NewFake(1), &procs.Fake{}, nil, nil, "test")
+		if err := col.Init(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(col.Close)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		if err := Run(ctx, col, "127.0.0.1:65536", "", time.Second); err == nil || !strings.Contains(err.Error(), "invalid port") {
+			t.Fatalf("Run with invalid port: %v", err)
+		}
+	})
+}
 
 func newTestServer(t *testing.T, token string) (*Server, *httptest.Server) {
 	t.Helper()
