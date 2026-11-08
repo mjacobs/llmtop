@@ -17,16 +17,24 @@ import (
 // returning an error. initErr guards every entry point: NewNVML seeds it
 // and only a successful Init clears it.
 type nvmlVendor struct {
+	lib     nvml.Interface
 	initErr error          // why NVML is unusable; nil once Init succeeded
 	lastTs  map[int]uint64 // per-device GetProcessUtilization watermark
 }
 
+// Share one real library across vendors, as the package-level API does.
+var realNVML = nvml.New()
+
 func NewNVML() Vendor {
-	return &nvmlVendor{initErr: errors.New("nvml not initialized"), lastTs: map[int]uint64{}}
+	return newNVML(realNVML)
+}
+
+func newNVML(lib nvml.Interface) *nvmlVendor {
+	return &nvmlVendor{lib: lib, initErr: errors.New("nvml not initialized"), lastTs: map[int]uint64{}}
 }
 
 func (n *nvmlVendor) Init() error {
-	if ret := nvml.Init(); ret != nvml.SUCCESS {
+	if ret := n.lib.Init(); ret != nvml.SUCCESS {
 		n.initErr = initErr(ret)
 		return n.initErr
 	}
@@ -51,7 +59,7 @@ func initErr(ret nvml.Return) error {
 // unconditionally.
 func (n *nvmlVendor) Shutdown() {
 	if n.initErr == nil {
-		_ = nvml.Shutdown()
+		_ = n.lib.Shutdown()
 	}
 }
 
@@ -59,7 +67,7 @@ func (n *nvmlVendor) DriverVersion() (string, error) {
 	if n.initErr != nil {
 		return "", n.initErr
 	}
-	v, ret := nvml.SystemGetDriverVersion()
+	v, ret := n.lib.SystemGetDriverVersion()
 	if ret != nvml.SUCCESS {
 		return "", fmt.Errorf("driver version: %s", nvml.ErrorString(ret))
 	}
@@ -73,14 +81,14 @@ func (n *nvmlVendor) Sample() ([]DeviceSample, []ProcSample, error) {
 	if n.initErr != nil {
 		return nil, nil, n.initErr
 	}
-	count, ret := nvml.DeviceGetCount()
+	count, ret := n.lib.DeviceGetCount()
 	if ret != nvml.SUCCESS {
 		return nil, nil, fmt.Errorf("device count: %s", nvml.ErrorString(ret))
 	}
 	var devs []DeviceSample
 	var procs []ProcSample
 	for i := 0; i < count; i++ {
-		dev, ret := nvml.DeviceGetHandleByIndex(i)
+		dev, ret := n.lib.DeviceGetHandleByIndex(i)
 		if ret != nvml.SUCCESS {
 			continue
 		}
