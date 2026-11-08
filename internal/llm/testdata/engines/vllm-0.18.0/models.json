@@ -1,0 +1,30 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "alpha",
+      "object": "model",
+      "created": 1794118766,
+      "owned_by": "vllm",
+      "root": "alpha",
+      "parent": null,
+      "max_model_len": 512,
+      "permission": [
+        {
+          "id": "modelperm-8ce7a3e2b2b238b8",
+          "object": "model_permission",
+          "created": 1794118766,
+          "allow_create_engine": false,
+          "allow_sampling": true,
+          "allow_logprobs": true,
+          "allow_search_indices": false,
+          "allow_view": true,
+          "allow_fine_tuning": false,
+          "organization": "*",
+          "group": null,
+          "is_blocking": false
+        }
+      ]
+    }
+  ]
+}

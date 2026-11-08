@@ -1,0 +1,10 @@
+{
+  "model_alias": "alpha",
+  "total_slots": 1,
+  "is_sleeping": false,
+  "build_info": "b11541-ce8c04021",
+  "model_path": "/models/alpha.gguf",
+  "default_generation_settings": {
+    "n_ctx": 512
+  }
+}

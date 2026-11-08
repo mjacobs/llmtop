@@ -72,6 +72,10 @@ test-race: ## Run the unit tests with the race detector
 test-nvml: ## Run the env-gated NVML hardware smoke test (needs a real GPU)
 	LLMTOP_NVML_TEST=1 go test $(GOFLAGS) ./internal/gpu/ -run NVML -v
 
+.PHONY: test-llm-live
+test-llm-live: ## Run the opt-in adapter smoke test against one real engine
+	LLMTOP_LIVE_TEST=1 go test $(GOFLAGS) ./internal/llm -run '^TestLiveAdapter$$' -count=1 -v
+
 .PHONY: cover
 cover: ## Run tests with a coverage profile and print the total
 	go test $(GOFLAGS) -coverprofile=$(COVERPROFILE) ./...
