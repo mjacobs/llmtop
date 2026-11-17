@@ -53,3 +53,40 @@ func TestPoolingChartUsesInputHistory(t *testing.T) {
 		t.Fatalf("generation chart used the input series: %q", lines[2])
 	}
 }
+
+func TestHiddenAddressesPreservePoolingChart(t *testing.T) {
+	for _, exhausted := range []bool{false, true} {
+		name := "host-collision"
+		if exhausted {
+			name = "exhausted-budget"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := hostStates(ViewConfig{
+				Hosts:         []HostSpec{{Name: "alpha", Addr: "pool:9832"}},
+				ShowHostnames: true, ShowGraphicsProcs: true,
+			})[0]
+			snap := &model.Snapshot{
+				Timestamp: time.Unix(1, 0),
+				Servers: []model.LLMServer{{
+					Kind: "vllm", Role: "pooling", Status: model.StatusOK,
+					Endpoint: "http://127.0.0.1:8101",
+					Metrics:  &model.LLMMetrics{PromptTPS: 400, KVCacheUsage: -1},
+				}},
+			}
+			if exhausted {
+				for i := 0; i < scrubBudget/maxScrubLen; i++ {
+					snap.Errors = append(snap.Errors, strings.Repeat("x ", maxScrubLen/2))
+				}
+			}
+			h.Apply(client.Update{Snapshot: snap})
+			srv := &h.Snap.Servers[0]
+			if srv.Role != "pooling" {
+				t.Fatalf("built-in role changed to %q", srv.Role)
+			}
+			lines := serverBlockLines(h, srv, DefaultTheme(), 80)
+			if !strings.Contains(lines[2], "input t/s") || !strings.Contains(lines[2], "█") {
+				t.Fatalf("pooling chart lost input history: %q", lines[2])
+			}
+		})
+	}
+}

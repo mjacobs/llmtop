@@ -107,7 +107,7 @@ func (v hostView) filterSnapshot(s *model.Snapshot) *model.Snapshot {
 			switch srv.Kind {
 			case "llama.cpp", "vllm", "ninfer", "strata":
 				// Known engine identifiers select metrics advice. Keep
-				// their meaning, like known statuses and the router role;
+				// their meaning, like known statuses and built-in roles;
 				// only free-form kinds can contain an address.
 			default:
 				srv.Kind = sc.text(srv.Kind)
@@ -116,7 +116,7 @@ func (v hostView) filterSnapshot(s *model.Snapshot) *model.Snapshot {
 			if !knownStatus[srv.Status] {
 				srv.Status = sc.text(srv.Status)
 			}
-			if srv.Role != "router" {
+			if srv.Role != "router" && srv.Role != "pooling" {
 				srv.Role = sc.text(srv.Role)
 			}
 		}
