@@ -384,6 +384,13 @@ titles every host that way. Set both to `false` for screenshots.
   KV-cache usage, and the engine's sleep state. `slots N/M` uses
   `--max-num-seqs` from the command line as `M`. Unlike llama.cpp, vLLM's
   `/metrics` has no side effects, so it is polled every tick.
+- **Pooling models:** a discovered vLLM process started with `--runner pooling`
+  (rerankers and embedding models) shows input tokens/sec and an input-throughput
+  sparkline. These models do not generate text, so a generation chart would
+  stay flat. Pooling detection requires the server's command line to be visible
+  to the collector; a static endpoint without a visible process retains the
+  generation chart. For remote hosts, update both the agent and the TUI so the
+  agent reports the pooling role.
 - **Status:** `/health` 503 (engine still starting, or temporarily unavailable)
   shows as `loading`, same as llama.cpp. A server put to sleep with
   `--enable-sleep-mode` and `POST /sleep` shows as `sleeping`.

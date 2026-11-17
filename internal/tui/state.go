@@ -25,23 +25,25 @@ type HostState struct {
 	ErrMsg  string
 	view    hostView
 
-	UtilHist    map[int]*history.Ring[float64]
-	MemHist     map[int]*history.Ring[float64]
-	LLMUtilHist map[int]*history.Ring[float64]
-	LLMMemHist  map[int]*history.Ring[float64]
-	GenTPSHist  map[string]*history.Ring[float64]
+	UtilHist      map[int]*history.Ring[float64]
+	MemHist       map[int]*history.Ring[float64]
+	LLMUtilHist   map[int]*history.Ring[float64]
+	LLMMemHist    map[int]*history.Ring[float64]
+	GenTPSHist    map[string]*history.Ring[float64]
+	PromptTPSHist map[string]*history.Ring[float64]
 }
 
 func NewHostState(name string) *HostState {
 	return &HostState{
-		Name:        name,
-		Display:     name,
-		view:        hostView{showGraphics: true, showAddrs: true, showNames: true},
-		UtilHist:    map[int]*history.Ring[float64]{},
-		MemHist:     map[int]*history.Ring[float64]{},
-		LLMUtilHist: map[int]*history.Ring[float64]{},
-		LLMMemHist:  map[int]*history.Ring[float64]{},
-		GenTPSHist:  map[string]*history.Ring[float64]{},
+		Name:          name,
+		Display:       name,
+		view:          hostView{showGraphics: true, showAddrs: true, showNames: true},
+		UtilHist:      map[int]*history.Ring[float64]{},
+		MemHist:       map[int]*history.Ring[float64]{},
+		LLMUtilHist:   map[int]*history.Ring[float64]{},
+		LLMMemHist:    map[int]*history.Ring[float64]{},
+		GenTPSHist:    map[string]*history.Ring[float64]{},
+		PromptTPSHist: map[string]*history.Ring[float64]{},
 	}
 }
 
@@ -88,6 +90,7 @@ func (h *HostState) Apply(u client.Update) {
 			continue
 		}
 		ringPushStr(h.GenTPSHist, srv.Endpoint, srv.Metrics.PredictedTPS)
+		ringPushStr(h.PromptTPSHist, srv.Endpoint, srv.Metrics.PromptTPS)
 	}
 }
 

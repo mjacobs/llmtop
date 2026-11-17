@@ -70,7 +70,7 @@ type LLMServer struct {
 	// its VLLM::EngineCore child does). Filled by the collector; empty when
 	// the tree holds no GPU, or from an agent that predates the field.
 	GPUs       []int  `json:"gpus,omitempty"`
-	Role       string `json:"role,omitempty"` // "router" for llama.cpp router mode
+	Role       string `json:"role,omitempty"` // "router" for llama.cpp router mode; "pooling" for vLLM pooling
 	Status     string `json:"status"`         // StatusOK | StatusLoading | StatusUnreachable | StatusSleeping
 	Model      string `json:"model"`          // alias, else basename(model_path)
 	CtxSize    int    `json:"ctx_size"`

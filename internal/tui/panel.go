@@ -190,6 +190,9 @@ func serverLine2(srv *model.LLMServer, th Theme) string {
 			fmt.Sprintf("prompt %.1f t/s", m.PromptTPS),
 			gen,
 		}
+		if srv.Role == "pooling" {
+			parts = []string{fmt.Sprintf("input %.1f t/s", m.PromptTPS)}
+		}
 		if m.KVCacheUsage >= 0 {
 			parts = append(parts, fmt.Sprintf("kv %.0f%%", m.KVCacheUsage*100))
 		}
@@ -251,8 +254,14 @@ func serverBlockLines(h *HostState, srv *model.LLMServer, th Theme, width int) [
 	if srv.Role == "router" || srv.Metrics == nil {
 		return lines
 	}
+	hist := h.GenTPSHist
+	label := "gen t/s"
+	if srv.Role == "pooling" {
+		hist = h.PromptTPSHist
+		label = "input t/s"
+	}
 	var series []float64
-	if r := h.GenTPSHist[srv.Endpoint]; r != nil {
+	if r := hist[srv.Endpoint]; r != nil {
 		series = r.Slice()
 	}
 	max := 1.0
@@ -261,11 +270,11 @@ func serverBlockLines(h *HostState, srv *model.LLMServer, th Theme, width int) [
 			max = v
 		}
 	}
-	w := width - 10
+	w := width - len(label) - 3
 	if w < 8 {
 		w = 8
 	}
-	spark := "  " + Sparkline(series, max, w) + " gen t/s"
+	spark := "  " + Sparkline(series, max, w) + " " + label
 	lines = append(lines, truncateLine(th.LLM.Render(spark), width))
 	return lines
 }

@@ -351,6 +351,9 @@ func serverLine(srv *model.LLMServer, th Theme, width int) string {
 		line += " " + th.Dim.Render("sleeping")
 	case srv.Metrics != nil:
 		stats := fmt.Sprintf(" gen %.1f t/s", srv.Metrics.PredictedTPS)
+		if srv.Role == "pooling" {
+			stats = fmt.Sprintf(" input %.1f t/s", srv.Metrics.PromptTPS)
+		}
 		if srv.Metrics.KVCacheUsage >= 0 {
 			stats += fmt.Sprintf(" kv %.0f%%", srv.Metrics.KVCacheUsage*100)
 		}

@@ -34,6 +34,7 @@ type VLLM struct {
 
 type vllmMeta struct {
 	model string
+	role  string
 	ctx   int
 	slots int
 }
@@ -60,6 +61,9 @@ func (a *VLLM) Detect(cmdline []string) (string, bool) {
 		return ep, ok
 	}
 	m := vllmMeta{model: vllmModelFromCmdline(cmdline)}
+	if argvStringFlag(cmdline, "--runner") == "pooling" {
+		m.role = "pooling"
+	}
 	if n, ok := argvIntFlag(cmdline, "--max-model-len"); ok && n > 0 {
 		m.ctx = n
 	}
@@ -107,6 +111,7 @@ func (a *VLLM) Fetch(ctx context.Context, endpoint string, _ FetchHint) model.LL
 	}
 	s.CtxSize = meta.ctx
 	s.SlotsTotal = meta.slots
+	s.Role = meta.role
 
 	// /health is 200 once the API process is up; 503 while the engine is
 	// still starting (or has died). Treat 503 like llama.cpp's loading

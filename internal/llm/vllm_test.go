@@ -135,6 +135,37 @@ func TestVLLMFetchOK(t *testing.T) {
 	}
 }
 
+func TestVLLMPoolingInputThroughput(t *testing.T) {
+	f := newFakeVLLM(t, http.StatusOK, vllmModelsJSON, vllmMetrics(100, 0, 0, 0, 0, "awake"))
+	host, port, err := net.SplitHostPort(f.srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := NewVLLM()
+	base := time.Unix(4000, 0)
+	a.Now = func() time.Time { return base }
+	ep, ok := a.Detect([]string{"vllm", "serve", "reranker", "--host", host, "--port", port, "--runner=pooling"})
+	if !ok {
+		t.Fatal("pooling process not detected")
+	}
+	s := a.Fetch(t.Context(), ep, FetchHint{})
+	if s.Role != "pooling" || s.Metrics == nil {
+		t.Fatalf("pooling metadata missing: %+v", s)
+	}
+	next := vllmMetrics(300, 0, 0, 0, 0, "awake")
+	f.metrics.Store(&next)
+	a.Now = func() time.Time { return base.Add(2 * time.Second) }
+	s = a.Fetch(t.Context(), ep, FetchHint{})
+	if s.Metrics == nil || s.Metrics.PromptTPS != 100 || s.Metrics.PredictedTPS != 0 || s.Role != "pooling" {
+		t.Fatalf("pooling throughput = %+v", s)
+	}
+	// A generation server replacing the pooling process must not inherit its role.
+	a.Detect([]string{"vllm", "serve", "text-model", "--host", host, "--port", port})
+	if s := a.Fetch(t.Context(), ep, FetchHint{}); s.Role != "" {
+		t.Fatalf("stale pooling role survived replacement: %+v", s)
+	}
+}
+
 func TestVLLMFetchSleeping(t *testing.T) {
 	body := vllmMetrics(0, 0, 0, 0, 0, "discard_all")
 	f := newFakeVLLM(t, http.StatusOK, vllmModelsJSON, body)
